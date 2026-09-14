@@ -189,7 +189,7 @@ rm -f /tmp/diagnose.php
 # diagnosticando (ronda 3, bloque de arriba), no queremos que esta corra
 # todavía. Descomentar (quitar el "# " de la línea de abajo) cuando se
 # confirme la causa raíz y se quiera reintentar la migración real.
-# php artisan migrate --path=database/migrations/0001_01_01_000000_create_users_table.php --force -vvv
+php artisan migrate --path=database/migrations/0001_01_01_000000_create_users_table.php --force -vvv
 
 # config:cache/route:cache leen env() UNA VEZ acá -ya con las variables
 # reales de Render disponibles en el proceso-, no en build time (ahí
