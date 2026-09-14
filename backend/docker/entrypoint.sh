@@ -18,48 +18,79 @@ sed -ri "s/:80>/:${PORT}>/" /etc/apache2/sites-available/000-default.conf
 # igual a la migración real de abajo.
 # ============================================================================
 # BEGIN DIAGNOSTIC
+#
+# Ronda 2 de diagnóstico (la ronda 1 -config/current_database/search_path/
+# tablas existentes- ya confirmó: conexión correcta a la DB "chibikko" como
+# neondb_owner, search_path=public, public.users NO existe, única tabla
+# existente es "migrations". Descarta tabla duplicada y search_path).
+#
+# Acá reproducimos, DENTRO DEL MISMO PROCESO PHP, exactamente el
+# Schema::create() de la tabla `users` -mismos tipos, mismo orden de
+# columnas que 0001_01_01_000000_create_users_table.php- pero contra una
+# tabla con OTRO NOMBRE (`_diagnostic_users_test`) para no tocar nunca la
+# tabla `users` real ni nada que la migration real vaya a usar. Se crea,
+# se loguea cada query vía DB::listen() (SQL + bindings + tiempo), y se
+# borra a sí misma al final -nunca se ejecuta contra `users`, `migrations`
+# ni ninguna tabla real, así que no es un "comando destructivo" en el
+# sentido de las reglas: es un objeto que este mismo bloque crea y destruye-.
+#
+# DB::listen() no sobrevive a un `php artisan migrate` en un proceso
+# aparte (cada invocación de `php artisan` es un proceso PHP nuevo), así
+# que en vez de intentar "engancharlo" al comando real de abajo, se
+# reproduce la migration EN ESTE MISMO proceso -mismo Blueprint, mismo
+# grammar de Postgres, mismo resultado esperado- para que el listener sí
+# pueda capturar todo.
 cat > /tmp/diagnose.php <<'PHP'
-function diag(string $label, callable $fn): void {
-    echo "=== DIAGNOSTIC: {$label} ===\n";
-    try {
-        foreach ((array) $fn() as $row) {
-            echo '  ' . json_encode($row) . "\n";
+$queryLog = [];
+DB::listen(function ($query) use (&$queryLog) {
+    $entry = ['sql' => $query->sql, 'bindings' => $query->bindings, 'time_ms' => $query->time];
+    $queryLog[] = $entry;
+    echo '[QUERY] ' . $query->time . 'ms | ' . $query->sql . ' | bindings=' . json_encode($query->bindings) . "\n";
+});
+
+function printExceptionChain(\Throwable $e): void {
+    $current = $e;
+    $level = 0;
+    while ($current && $level < 5) {
+        $code = $current->getCode();
+        echo "  [{$level}] " . get_class($current) . ": " . $current->getMessage() . " (code={$code})\n";
+        if ($current instanceof \Illuminate\Database\QueryException) {
+            echo "      SQL real de esta excepcion: " . $current->getSql() . "\n";
+            echo "      Bindings: " . json_encode($current->getBindings()) . "\n";
         }
-    } catch (\Throwable $e) {
-        echo '  FAILED: ' . get_class($e) . ': ' . $e->getMessage() . "\n";
-        $prev = $e->getPrevious();
-        $depth = 0;
-        while ($prev && $depth < 5) {
-            echo '  CAUSED BY: ' . get_class($prev) . ': ' . $prev->getMessage() . "\n";
-            $prev = $prev->getPrevious();
-            $depth++;
-        }
+        $current = $current->getPrevious();
+        $level++;
     }
 }
 
-echo "=== DIAGNOSTIC: config/database.php -> connections.pgsql (password oculta) ===\n";
+echo "=== DIAGNOSTIC: reproduciendo Schema::create('users') contra _diagnostic_users_test ===\n";
+
+Schema::dropIfExists('_diagnostic_users_test'); // limpieza defensiva por si quedo de un intento anterior
+
 try {
-    $cfg = config('database.connections.pgsql');
-    foreach (['host', 'port', 'database', 'username', 'sslmode', 'search_path', 'charset'] as $k) {
-        echo "  {$k} = " . (array_key_exists($k, $cfg) ? var_export($cfg[$k], true) : '(unset)') . "\n";
-    }
-    $urlMasked = isset($cfg['url']) ? preg_replace('#://([^:]+):[^@]+@#', '://$1:***@', $cfg['url']) : '(unset)';
-    echo "  url (password oculta) = {$urlMasked}\n";
-    echo '  DB_CONNECTION efectiva = ' . config('database.default') . "\n";
+    Schema::create('_diagnostic_users_test', function (Illuminate\Database\Schema\Blueprint $table) {
+        $table->id();
+        $table->string('name');
+        $table->string('email')->unique();
+        $table->timestamp('email_verified_at')->nullable();
+        $table->string('password');
+        $table->rememberToken();
+        $table->timestamps();
+    });
+    echo "=== DIAGNOSTIC: Schema::create tuvo EXITO (la definicion de Blueprint no es el problema) ===\n";
 } catch (\Throwable $e) {
-    echo '  FAILED reading config: ' . get_class($e) . ': ' . $e->getMessage() . "\n";
+    echo "=== DIAGNOSTIC: Schema::create FALLO -esta es la excepcion real, sin 25P02 encima- ===\n";
+    printExceptionChain($e);
 }
 
-diag('current_database / current_user / current_schema / version', fn () => DB::select(
-    'select current_database() as db, current_user as usr, current_schema() as schema, version() as ver'
-));
-diag('show search_path', fn () => DB::select('show search_path'));
-diag("to_regclass('public.users')", fn () => DB::select("select to_regclass('public.users') as users_table"));
-diag('tablas existentes en schema public', fn () => DB::select(
-    "select tablename from pg_tables where schemaname = 'public' order by tablename"
-));
-diag('contenido de la tabla migrations (si existe)', fn () => DB::select('select * from migrations order by id'));
+echo "=== DIAGNOSTIC: limpiando tabla temporal ===\n";
+try {
+    Schema::dropIfExists('_diagnostic_users_test');
+} catch (\Throwable $e) {
+    echo "  (no se pudo limpiar _diagnostic_users_test, revisar manualmente: " . $e->getMessage() . ")\n";
+}
 
+echo "=== DIAGNOSTIC: total de queries capturadas = " . count($queryLog) . " ===\n";
 echo "=== DIAGNOSTIC: fin del bloque ===\n";
 PHP
 php artisan tinker < /tmp/diagnose.php || echo "[DIAGNOSTIC] el bloque de diagnostico fallo al ejecutarse (ver arriba); continuando igual con la migracion real"
@@ -80,9 +111,11 @@ rm -f /tmp/diagnose.php
 # que un fallo acá aborte el entrypoint con su mismo exit code -nunca se
 # levanta Apache con una migración fallida a medias-.
 #
-# -vvv TEMPORAL (ver bloque de diagnóstico arriba) para capturar el mayor
-# detalle posible del error real en los logs de Render mientras se
-# investiga el 25P02. Revertir a `--force` a secas una vez resuelto.
+# -vvv y --path= TEMPORALES (ver bloque de diagnóstico arriba): -vvv para
+# capturar el mayor detalle posible en los logs de Render, --path para
+# correr SOLO esta migración puntual mientras se investiga el 25P02 -no
+# las otras 23-. Revertir a `migrate --force` a secas (sin --path, todas
+# las migraciones pendientes) una vez resuelto.
 #
 # Caveat conocido y aceptado (no hay forma de evitarlo sin Pre-Deploy/
 # shell, que Free no ofrece): si Render llegara a solapar brevemente el
@@ -93,7 +126,7 @@ rm -f /tmp/diagnose.php
 # fallo de migración)-. Bajo riesgo en Free (una sola instancia, sin
 # scaling horizontal), y de todas formas no hay otra opción disponible en
 # este plan.
-php artisan migrate --force -vvv
+php artisan migrate --path=database/migrations/0001_01_01_000000_create_users_table.php --force -vvv
 
 # config:cache/route:cache leen env() UNA VEZ acá -ya con las variables
 # reales de Render disponibles en el proceso-, no en build time (ahí
