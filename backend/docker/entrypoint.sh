@@ -19,33 +19,36 @@ sed -ri "s/:80>/:${PORT}>/" /etc/apache2/sites-available/000-default.conf
 # ============================================================================
 # BEGIN DIAGNOSTIC
 #
-# Ronda 2 de diagnóstico (la ronda 1 -config/current_database/search_path/
-# tablas existentes- ya confirmó: conexión correcta a la DB "chibikko" como
-# neondb_owner, search_path=public, public.users NO existe, única tabla
-# existente es "migrations". Descarta tabla duplicada y search_path).
+# Ronda 3 de diagnóstico. Rondas anteriores ya descartaron: tabla
+# duplicada, search_path, conexión/credenciales, y el SQL/Blueprint en sí
+# (CREATE TABLE + ALTER TABLE UNIQUE corrido SUELTO -sin transacción
+# explícita- funcionó perfecto). El dato nuevo es que el Migrator SIEMPRE
+# envuelve `up()` en `Connection->transaction()`
+# (Migrator.php:440 en el stack trace real) — así que ahora se reproduce
+# ESO puntualmente: la misma secuencia, pero dentro de una transacción
+# explícita, en dos variantes (DB::transaction() y beginTransaction()/
+# commit() manual), para aislar si el problema es "transacción en general"
+# o algo específico de cómo el Migrator la maneja.
 #
-# Acá reproducimos, DENTRO DEL MISMO PROCESO PHP, exactamente el
-# Schema::create() de la tabla `users` -mismos tipos, mismo orden de
-# columnas que 0001_01_01_000000_create_users_table.php- pero contra una
-# tabla con OTRO NOMBRE (`_diagnostic_users_test`) para no tocar nunca la
-# tabla `users` real ni nada que la migration real vaya a usar. Se crea,
-# se loguea cada query vía DB::listen() (SQL + bindings + tiempo), y se
-# borra a sí misma al final -nunca se ejecuta contra `users`, `migrations`
-# ni ninguna tabla real, así que no es un "comando destructivo" en el
-# sentido de las reglas: es un objeto que este mismo bloque crea y destruye-.
-#
-# DB::listen() no sobrevive a un `php artisan migrate` en un proceso
-# aparte (cada invocación de `php artisan` es un proceso PHP nuevo), así
-# que en vez de intentar "engancharlo" al comando real de abajo, se
-# reproduce la migration EN ESTE MISMO proceso -mismo Blueprint, mismo
-# grammar de Postgres, mismo resultado esperado- para que el listener sí
-# pueda capturar todo.
+# Tablas usadas: `_diagnostic_users_transaction_test` y
+# `_diagnostic_users_transaction_test2` -nunca `users`-, creadas y
+# borradas por este mismo bloque. No se toca ninguna tabla real.
 cat > /tmp/diagnose.php <<'PHP'
 $queryLog = [];
 DB::listen(function ($query) use (&$queryLog) {
     $entry = ['sql' => $query->sql, 'bindings' => $query->bindings, 'time_ms' => $query->time];
     $queryLog[] = $entry;
     echo '[QUERY] ' . $query->time . 'ms | ' . $query->sql . ' | bindings=' . json_encode($query->bindings) . "\n";
+});
+
+\Illuminate\Support\Facades\Event::listen(\Illuminate\Database\Events\TransactionBeginning::class, function ($e) {
+    echo "[TX EVENT] BEGIN (connection: {$e->connectionName})\n";
+});
+\Illuminate\Support\Facades\Event::listen(\Illuminate\Database\Events\TransactionCommitted::class, function ($e) {
+    echo "[TX EVENT] COMMIT (connection: {$e->connectionName})\n";
+});
+\Illuminate\Support\Facades\Event::listen(\Illuminate\Database\Events\TransactionRolledBack::class, function ($e) {
+    echo "[TX EVENT] ROLLBACK (connection: {$e->connectionName})\n";
 });
 
 function printExceptionChain(\Throwable $e): void {
@@ -55,7 +58,7 @@ function printExceptionChain(\Throwable $e): void {
         $code = $current->getCode();
         echo "  [{$level}] " . get_class($current) . ": " . $current->getMessage() . " (code={$code})\n";
         if ($current instanceof \Illuminate\Database\QueryException) {
-            echo "      SQL real de esta excepcion: " . $current->getSql() . "\n";
+            echo "      SQL: " . $current->getSql() . "\n";
             echo "      Bindings: " . json_encode($current->getBindings()) . "\n";
         }
         $current = $current->getPrevious();
@@ -63,37 +66,92 @@ function printExceptionChain(\Throwable $e): void {
     }
 }
 
-echo "=== DIAGNOSTIC: reproduciendo Schema::create('users') contra _diagnostic_users_test ===\n";
+echo "=== DIAGNOSTIC: estado antes de cualquier transaccion ===\n";
+foreach (DB::select('select txid_current() as txid') as $row) {
+    echo '  txid_current() = ' . $row->txid . "\n";
+}
+foreach (DB::select('select current_database() as db, current_user as usr, current_schema() as schema') as $row) {
+    echo '  db=' . $row->db . ' user=' . $row->usr . ' schema=' . $row->schema . "\n";
+}
 
-Schema::dropIfExists('_diagnostic_users_test'); // limpieza defensiva por si quedo de un intento anterior
+echo "\n=== DIAGNOSTIC: TEST 1 -- DB::transaction() + Schema::create con unique (igual que Migrator::runMigration) ===\n";
+Schema::dropIfExists('_diagnostic_users_transaction_test');
 
+$test1Ok = false;
 try {
-    Schema::create('_diagnostic_users_test', function (Illuminate\Database\Schema\Blueprint $table) {
-        $table->id();
-        $table->string('name');
-        $table->string('email')->unique();
-        $table->timestamp('email_verified_at')->nullable();
-        $table->string('password');
-        $table->rememberToken();
-        $table->timestamps();
+    DB::transaction(function () {
+        echo "  [dentro de la transaccion] ejecutando Schema::create...\n";
+        Schema::create('_diagnostic_users_transaction_test', function (Illuminate\Database\Schema\Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('email')->unique();
+            $table->timestamp('email_verified_at')->nullable();
+            $table->string('password');
+            $table->rememberToken();
+            $table->timestamps();
+        });
+        foreach (DB::select('select txid_current() as txid') as $row) {
+            echo '  [dentro de la transaccion] txid_current() = ' . $row->txid . "\n";
+        }
     });
-    echo "=== DIAGNOSTIC: Schema::create tuvo EXITO (la definicion de Blueprint no es el problema) ===\n";
+    $test1Ok = true;
+    echo "=== DIAGNOSTIC: TEST 1 EXITO ===\n";
 } catch (\Throwable $e) {
-    echo "=== DIAGNOSTIC: Schema::create FALLO -esta es la excepcion real, sin 25P02 encima- ===\n";
+    echo "=== DIAGNOSTIC: TEST 1 FALLO -- reproduce fielmente el comportamiento del Migrator real ===\n";
     printExceptionChain($e);
 }
 
-echo "=== DIAGNOSTIC: limpiando tabla temporal ===\n";
+echo "  verificando si la tabla quedo creada: ";
+foreach (DB::select("select to_regclass('public._diagnostic_users_transaction_test') as t") as $row) {
+    echo ($row->t ?? 'NULL') . "\n";
+}
 try {
-    Schema::dropIfExists('_diagnostic_users_test');
+    Schema::dropIfExists('_diagnostic_users_transaction_test');
 } catch (\Throwable $e) {
-    echo "  (no se pudo limpiar _diagnostic_users_test, revisar manualmente: " . $e->getMessage() . ")\n";
+    echo "  (no se pudo limpiar _diagnostic_users_transaction_test: " . $e->getMessage() . ")\n";
 }
 
-echo "=== DIAGNOSTIC: total de queries capturadas = " . count($queryLog) . " ===\n";
+if ($test1Ok) {
+    echo "\n=== DIAGNOSTIC: TEST 2 -- beginTransaction()/commit() manual, CREATE y ALTER como statements separados ===\n";
+    Schema::dropIfExists('_diagnostic_users_transaction_test2');
+    try {
+        DB::beginTransaction();
+        echo "  [manual] beginTransaction() OK\n";
+        Schema::create('_diagnostic_users_transaction_test2', function (Illuminate\Database\Schema\Blueprint $table) {
+            $table->id();
+            $table->string('name');
+            $table->string('email'); // sin ->unique() aca -se agrega abajo como ALTER separado, a mano-
+            $table->timestamp('email_verified_at')->nullable();
+            $table->string('password');
+            $table->rememberToken();
+            $table->timestamps();
+        });
+        DB::statement('alter table "_diagnostic_users_transaction_test2" add constraint "_diagnostic_users_transaction_test2_email_unique" unique ("email")');
+        DB::commit();
+        echo "=== DIAGNOSTIC: TEST 2 EXITO ===\n";
+    } catch (\Throwable $e) {
+        echo "=== DIAGNOSTIC: TEST 2 FALLO ===\n";
+        printExceptionChain($e);
+        try {
+            DB::rollBack();
+            echo "  rollback manual ejecutado\n";
+        } catch (\Throwable $e2) {
+            echo "  rollback tambien fallo: " . $e2->getMessage() . "\n";
+        }
+    }
+    try {
+        Schema::dropIfExists('_diagnostic_users_transaction_test2');
+    } catch (\Throwable $e) {
+        echo "  (no se pudo limpiar _diagnostic_users_transaction_test2: " . $e->getMessage() . ")\n";
+    }
+} else {
+    echo "\n=== DIAGNOSTIC: TEST 2 omitido -- TEST 1 ya fallo y ya tenemos la reproduccion real ===\n";
+}
+
+echo "\n=== DIAGNOSTIC: total de queries capturadas = " . count($queryLog) . " ===\n";
 echo "=== DIAGNOSTIC: fin del bloque ===\n";
 PHP
-php artisan tinker < /tmp/diagnose.php || echo "[DIAGNOSTIC] el bloque de diagnostico fallo al ejecutarse (ver arriba); continuando igual con la migracion real"
+php artisan tinker < /tmp/diagnose.php || echo "[DIAGNOSTIC] el bloque de diagnostico fallo al ejecutarse (ver arriba)"
 rm -f /tmp/diagnose.php
 # END DIAGNOSTIC
 # ============================================================================
@@ -126,7 +184,12 @@ rm -f /tmp/diagnose.php
 # fallo de migración)-. Bajo riesgo en Free (una sola instancia, sin
 # scaling horizontal), y de todas formas no hay otra opción disponible en
 # este plan.
-php artisan migrate --path=database/migrations/0001_01_01_000000_create_users_table.php --force -vvv
+#
+# TEMPORALMENTE COMENTADA a pedido explícito: todavía estamos
+# diagnosticando (ronda 3, bloque de arriba), no queremos que esta corra
+# todavía. Descomentar (quitar el "# " de la línea de abajo) cuando se
+# confirme la causa raíz y se quiera reintentar la migración real.
+# php artisan migrate --path=database/migrations/0001_01_01_000000_create_users_table.php --force -vvv
 
 # config:cache/route:cache leen env() UNA VEZ acá -ya con las variables
 # reales de Render disponibles en el proceso-, no en build time (ahí
