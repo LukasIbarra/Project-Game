@@ -29,8 +29,19 @@ class DatabaseSeeder extends Seeder
 
         $this->call(ItemSeeder::class);
         $this->call(EconomyItemSeeder::class);
-        $this->call(RecipeSeeder::class);
+
+        // RoomFurnitureSeeder ANTES que RecipeSeeder: crea bed_frame/
+        // nightstand/wooden_crate (items nuevos que solo existen acá, no
+        // en EconomyItemSeeder) y RecipeSeeder ya tiene recetas para esos
+        // 3 -leía Item::pluck('id','key') una sola vez al principio, así
+        // que si corría antes de que estos items existieran, tiraba
+        // "Undefined array key" al buscar su key. Confirmado en Neon
+        // (primer deploy con DB vacía) y reproducido localmente contra
+        // una base nueva/vacía -en la DB de desarrollo existente no se
+        // notaba porque esos 3 items ya estaban sembrados de antes-.
         $this->call(RoomFurnitureSeeder::class);
+        $this->call(RecipeSeeder::class);
+
         $this->call(ArenaEquipmentSeeder::class);
         $this->call(PetSeeder::class);
         $this->call(PetNarrativeEventSeeder::class);
