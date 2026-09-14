@@ -21,7 +21,6 @@ services:
     # Corre UNA vez por cada deploy real, antes de que el nuevo código
     # reciba tráfico -nunca en cada arranque/restart del contenedor, eso
     # vive en docker/entrypoint.sh y NO incluye migraciones a propósito-.
-    preDeployCommand: php artisan migrate --force
 
     envVars:
       - key: APP_NAME
