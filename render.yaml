@@ -52,8 +52,20 @@ services:
       - key: DB_CONNECTION
         value: pgsql
       # Connection string completa que da Neon (postgres://user:pass@host/db).
-      # config/database.php ya soporta DB_URL de forma nativa.
+      # config/database.php ya soporta DB_URL de forma nativa. Este es el
+      # endpoint POOLED (host con sufijo "-pooler") — lo usa la app en
+      # tiempo de ejecución (Apache/PHP), nunca las migraciones.
       - key: DB_URL
+        sync: false
+      # Connection string DIRECTO de Neon (mismo dashboard → Connection
+      # Details → desactivar "Connection pooling" → copiar esa otra URL,
+      # host SIN "-pooler"). docker/entrypoint.sh lo usa solo para correr
+      # `php artisan migrate`, nunca para el tráfico normal de la app —
+      # ver el comentario en ese archivo y docs/RENDER_DEPLOYMENT_ANALYSIS.md
+      # para el porqué (Neon documenta que su pooler en modo transacción
+      # no es confiable para las transacciones multi-statement que
+      # generan las migraciones).
+      - key: DB_URL_MIGRATE
         sync: false
 
       - key: SESSION_DRIVER

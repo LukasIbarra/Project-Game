@@ -252,12 +252,13 @@ Ver sección 8 más abajo — están declaradas (sin valores reales) en
 ### 4. Configuración Render
 
 `render.yaml` (raíz del repo, `rootDir: backend`) declara: `runtime:
-docker`, `plan: free`, `healthCheckPath: /up`, `preDeployCommand: php
-artisan migrate --force`, y la lista completa de env vars (con `sync:
-false` en las que son secretas — Render las deja vacías para completar a
-mano). Es un punto de partida reproducible vía "Render → New →
-Blueprint"; no reemplaza revisar la configuración real en el dashboard
-tras crear el servicio.
+docker`, `plan: free`, `healthCheckPath: /up`, y la lista completa de env
+vars (con `sync: false` en las que son secretas — Render las deja vacías
+para completar a mano). Es un punto de partida reproducible vía "Render →
+New → Blueprint"; no reemplaza revisar la configuración real en el
+dashboard tras crear el servicio. **Nota:** el plan Free no ofrece
+`preDeployCommand` ni shell/SSH — ver sección 14 para dónde corren las
+migraciones en la práctica.
 
 ### 5. Configuración Neon
 
@@ -268,15 +269,19 @@ de forma nativa — la connection string que Neon entrega
 (`postgres://user:pass@host/db`) se puede pegar tal cual como `DB_URL` en
 Render sin descomponerla en host/puerto/usuario/contraseña por separado.
 
-### 6. Pre-deploy command
+### 6. Migraciones (ya no es un Pre-deploy command — ver sección 14)
 
 ```bash
 php artisan migrate --force
 ```
 
-Configurado en `render.yaml` como `preDeployCommand` — corre una vez por
-cada deploy real, antes de que el nuevo código reciba tráfico. **No**
-incluye `db:seed` automático a propósito: los seeders (`ItemSeeder`,
+**Desactualizado:** esto se planeó originalmente como
+`preDeployCommand` en `render.yaml`, pero el plan Free de Render no lo
+ofrece (ni shell/SSH ni one-off jobs). En la práctica corre dentro de
+`docker/entrypoint.sh`, en cada arranque del contenedor — ver sección 14
+para el detalle completo, incluida la causa raíz de un `SQLSTATE[25P02]`
+real que apareció acá y cómo se resolvió. **No** incluye `db:seed`
+automático a propósito: los seeders (`ItemSeeder`,
 `EconomyItemSeeder`, `RecipeSeeder`, `RoomFurnitureSeeder`,
 `ArenaEquipmentSeeder`, `PetSeeder`, `PetNarrativeEventSeeder`) ya usan
 `updateOrCreate` (idempotentes, se pueden correr más de una vez sin
@@ -398,3 +403,88 @@ tocarlo** (ninguna migración destructiva, ninguna base borrada/recreada):
   disco/DB a los 90 días si se usa el Postgres nativo de Render en vez de
   Neon, etc.) ya estaban documentados en la sección de análisis original
   y no cambiaron.
+
+## 14. Render Free sin Pre-Deploy/shell + SQLSTATE[25P02] en el primer deploy real
+
+### 14.1 Migraciones movidas a `entrypoint.sh`
+
+Al crear el servicio real se confirmó que el plan Free de Render **no**
+ofrece Pre-Deploy Command, shell/SSH ni one-off jobs — no hay forma de
+correr `migrate --force` por fuera del arranque del contenedor. Se movió
+a `docker/entrypoint.sh`, antes de levantar Apache, corriendo en cada
+arranque (deploy y restart/spin-up desde sleep). Es idempotente por
+diseño de Laravel (tabla `migrations`), así que un restart sin
+migraciones pendientes es un no-op. Riesgo aceptado y documentado en el
+propio `entrypoint.sh`: si Render llegara a solapar brevemente contenedor
+viejo/nuevo durante un deploy con migraciones nuevas, el segundo en
+llegar fallaría al arrancar (Postgres rechaza el CREATE/ALTER duplicado)
+— bajo riesgo en Free (una sola instancia, sin scaling horizontal), sin
+alternativa disponible en este plan.
+
+### 14.2 SQLSTATE[25P02] en la primera migración real y su causa raíz
+
+El primer `migrate --force` real (contra Neon) falló en
+`0001_01_01_000000_create_users_table` con
+`SQLSTATE[25P02]: In failed sql transaction` en el
+`ALTER TABLE ... ADD CONSTRAINT users_email_unique UNIQUE (email)`. 25P02
+siempre significa que un statement *anterior*, en la misma transacción,
+falló primero y la dejó abortada — el error visible es un síntoma
+secundario, nunca la causa real.
+
+Investigación en 3 rondas, cada una descartando una hipótesis con
+evidencia directa (nunca asumida):
+
+1. **Tabla `users` preexistente/stale** — descartada: probado a mano en
+   el SQL Editor de Neon que `users` no existía y que el CREATE+ALTER
+   equivalente corre sin errores ahí.
+2. **Conexión/credenciales/schema mal resueltos** — descartadas leyendo
+   config en runtime (`current_database()`/`current_user`/
+   `current_schema()`/`search_path`, todos correctos) y confirmando que
+   `ConfigurationUrlParser` de Laravel sí mergea `DB_URL` bien en el
+   connection real (una lectura ingenua de `config('database.connections.
+   pgsql')` engaña — muestra los defaults estáticos pre-merge, no lo que
+   se usa para conectar de verdad).
+3. **SQL/Blueprint incompatible con Postgres** — descartada: el
+   `CREATE TABLE` + `ALTER TABLE ... ADD CONSTRAINT ... UNIQUE`
+   exactamente como lo genera el Schema Builder de Laravel, reproducido
+   en un proceso PHP real contra el mismo `DB_URL`, corrió perfecto
+   **sin** una transacción explícita envolviéndolo.
+4. **El dato decisivo:** `Migrator::runMigration()` envuelve el `up()` de
+   cada migración en `Connection->transaction()` (confirmado en el stack
+   trace real, `Migrator.php:440`). Reproducir la MISMA secuencia dentro
+   de `DB::transaction()` (y también a mano con `beginTransaction()`/
+   `commit()`) reprodujo el 25P02 tal cual — la falla es específica de
+   correr varios statements DDL dentro de una transacción explícita.
+
+**Causa raíz confirmada:** `DB_URL` apunta al endpoint *pooled* de Neon
+(host con sufijo `-pooler`), que corre PgBouncer en modo `transaction`.
+La [documentación oficial de Neon para
+Laravel](https://neon.com/docs/guides/laravel-migrations) dice
+explícitamente que usar el connection string pooled para migraciones "can
+be prone to errors" y recomienda usar el connection string **directo**
+(sin pooler) solo para migrar, reservando el pooled para el tráfico
+normal de la app — exactamente el patrón de fallo reproducido acá
+(multi-statement DDL en una transacción explícita, sobre el pooler).
+
+### 14.3 Fix aplicado
+
+- `render.yaml`: nueva env var `DB_URL_MIGRATE` (`sync: false`) — el
+  connection string **directo** de Neon (Neon dashboard → Connection
+  Details → desactivar "Connection pooling" → esa otra URL, host sin
+  `-pooler`). `DB_URL` (pooled) se deja intacto, sigue siendo lo que usa
+  la app en runtime.
+- `docker/entrypoint.sh`: `php artisan migrate --force` ahora corre con
+  `DB_URL` sobreescrito puntualmente a `DB_URL_MIGRATE` (override de
+  proceso, vía `DB_URL="$DB_URL_MIGRATE" php artisan migrate --force` —
+  no toca el `DB_URL` del resto del proceso/Apache). Si `DB_URL_MIGRATE`
+  no está seteada todavía, cae de vuelta al `DB_URL` pooled con un
+  `[WARN]` explícito en los logs, en vez de romper el arranque.
+- Se quitó el bloque temporal de diagnóstico (rondas 1-3) de
+  `entrypoint.sh` — ya cumplió su propósito. `migrate --force` volvió a
+  su forma normal (sin `--path`, corre las 24 migraciones pendientes;
+  sin `-vvv`).
+
+**Pendiente (acción manual, no de código):** crear/copiar en el
+dashboard de Neon el connection string directo y cargarlo como
+`DB_URL_MIGRATE` en Render antes del próximo deploy. Sin ese paso, el
+`[WARN]` de arriba avisa en los logs y el 25P02 puede repetirse.
