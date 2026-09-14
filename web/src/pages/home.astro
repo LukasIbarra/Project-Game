@@ -1,0 +1,78 @@
+---
+// Fase 4.1B: pantalla de inicio simple, sobre el sistema de paneles y
+// los íconos SVG nuevos. Sigue sin ser la Home definitiva del juego (eso
+// es contenido real, fuera de alcance) — solo una landing coherente
+// post-login. El bloque "Estado del personaje" reusa el MISMO mock que
+// el HUD (un solo archivo, ver src/data/mockPlayerProgress.ts) para no
+// inventar números distintos que puedan confundirse entre sí o con
+// datos reales.
+import AppShell from "../layouts/AppShell.astro";
+import GameButton from "../components/ui/GameButton.astro";
+import GameBadge from "../components/ui/GameBadge.astro";
+import GamePanel from "../components/ui/GamePanel.astro";
+import Icon, { type IconName } from "../components/ui/Icon.astro";
+import ProgressBar from "../components/ui/ProgressBar.astro";
+import ResourceCounter from "../components/ui/ResourceCounter.astro";
+import { MOCK_PLAYER_PROGRESS } from "../data/mockPlayerProgress";
+
+const quickLinks: { href: string; label: string; icon: IconName }[] = [
+  { href: "/house", label: "Casa", icon: "house" },
+  { href: "/pet", label: "Mascota", icon: "pet" },
+  { href: "/arena", label: "Arena", icon: "arena" },
+  { href: "/play", label: "Mundo", icon: "world" },
+];
+
+// Mock de ejemplo, no viene de ningún log real todavía.
+const MOCK_RECENT_ACTIVITY = ["Creaste tu cuenta", "Tu personaje base se cargó correctamente"];
+---
+
+<AppShell title="Inicio">
+	<div class="mx-auto flex w-full max-w-3xl flex-col gap-4 py-4">
+		<GamePanel notched bodyClass="flex flex-col items-center gap-3 px-10 py-8 text-center">
+			<h1 class="m-0 text-lg text-text">Bienvenido de vuelta</h1>
+			<p class="m-0 max-w-md text-sm leading-relaxed text-muted">
+				Esta es tu pantalla de inicio. Desde la navegación de la izquierda vas a poder
+				entrar a tu casa, tu mascota, la arena y el resto de módulos a medida que se
+				construyan.
+			</p>
+			<GameButton href="/play" variant="outline" color="cyan">Entrar al Mundo →</GameButton>
+		</GamePanel>
+
+		<div class="grid gap-4 sm:grid-cols-2">
+			<GamePanel title="Estado del personaje" bodyClass="flex flex-col gap-3 p-5">
+				<div class="flex items-center justify-between">
+					<GameBadge text={`Nv. ${MOCK_PLAYER_PROGRESS.level}`} variant="cyan" />
+				</div>
+				<ProgressBar percent={MOCK_PLAYER_PROGRESS.expPercent} color="cyan" title="Experiencia (demo)" />
+				<div class="flex gap-4">
+					<ResourceCounter icon="coin" value={MOCK_PLAYER_PROGRESS.coins} color="pink" title="Monedas (demo)" />
+					<ResourceCounter icon="resource" value={MOCK_PLAYER_PROGRESS.resources} color="cyan" title="Recursos (demo)" />
+				</div>
+				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Datos de ejemplo</span>
+			</GamePanel>
+
+			<GamePanel title="Actividad reciente" bodyClass="flex flex-col gap-2 p-5">
+				<ul class="m-0 flex list-none flex-col gap-2 p-0 text-sm text-muted">
+					{MOCK_RECENT_ACTIVITY.map((entry) => (
+						<li class="border-l-2 border-outline-strong pl-2">{entry}</li>
+					))}
+				</ul>
+				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Datos de ejemplo</span>
+			</GamePanel>
+		</div>
+
+		<GamePanel title="Accesos rápidos" bodyClass="flex flex-col gap-3 p-5">
+			<div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
+				{quickLinks.map((link) => (
+					<a
+						href={link.href}
+						class="flex flex-col items-center gap-1 border border-outline-strong px-3 py-4 text-center text-muted hover:border-cyan hover:text-cyan"
+					>
+						<Icon name={link.icon} class="h-6 w-6" />
+						<span class="text-xs">{link.label}</span>
+					</a>
+				))}
+			</div>
+		</GamePanel>
+	</div>
+</AppShell>

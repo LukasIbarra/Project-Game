@@ -12,7 +12,14 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware) {
-        //
+        // Fase Deploy: Laravel 11 (a diferencia de 10) NO aplica
+        // `throttle:api` a las rutas de `api.php` por defecto -queda en
+        // el desarrollador agregarlo-. Sin esto, NINGÚN endpoint (login,
+        // register, arena/attack, crafting, etc.) tenía límite de
+        // requests, algo inaceptable para una demo pública. Usa el
+        // limiter "api" que Laravel ya trae incorporado (60 req/min por
+        // usuario autenticado o IP), sin inventar un sistema propio.
+        $middleware->throttleApi();
     })
     ->withExceptions(function (Exceptions $exceptions) {
         //

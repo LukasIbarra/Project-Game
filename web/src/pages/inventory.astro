@@ -1,0 +1,277 @@
+---
+// Fase 6: primera UI real de Inventario/Equipamiento. Astro/HTML puro
+// (CLAUDE.md, tabla de módulos de la Fase 4: Inventario -> Astro/HTML, no
+// Phaser) -mismo patrón que Hud.astro: esqueleto estático + <script> de
+// cliente que llama a la API (el token vive en localStorage, no hay nada
+// que resolver en el servidor de Astro). Reemplaza el PlaceholderView de
+// esta ruta.
+//
+// Fase Deploy: se quitó el panel "Catálogo"/"Obtener" (era una
+// herramienta de prueba de F6, nunca un mecanismo de juego real -ver
+// InventoryController::grant-). Desde F7/F8/F10 ya existen formas reales
+// de conseguir items (loot de expedición, crafting, recompensas de
+// combate); dejar un botón que le regalaba CUALQUIER item del catálogo a
+// CUALQUIER jugador autenticado era además un agujero de economía real
+// para una demo pública (el endpoint que usaba ahora está bloqueado fuera
+// de local/testing).
+import AppShell from "../layouts/AppShell.astro";
+import GamePanel from "../components/ui/GamePanel.astro";
+---
+
+<AppShell title="Inventario">
+	<div class="mx-auto flex w-full max-w-4xl flex-col gap-4 py-4">
+		<p id="inventory-error" class="hidden border border-red px-3 py-2 text-sm text-red"></p>
+
+		<GamePanel title="Equipamiento" bodyClass="grid gap-3 p-5 sm:grid-cols-2">
+			<div id="equipment-slots" class="contents"></div>
+		</GamePanel>
+
+		<GamePanel title="Inventario" bodyClass="flex flex-col gap-2 p-5">
+			<div id="inventory-list" class="flex flex-col gap-2"></div>
+			<p id="inventory-empty" class="hidden text-sm text-muted">Tu inventario está vacío.</p>
+		</GamePanel>
+	</div>
+</AppShell>
+
+<script>
+	import {
+		equipItem,
+		errorMessage,
+		getEquipment,
+		getInventory,
+		sellItem,
+		unequipSlot,
+		type CharacterEquipmentDto,
+		type InventoryItemDto,
+	} from "../game/net/ApiClient";
+
+	const SLOTS = ["hair", "shirt", "pants", "shoes", "weapon", "accessory"] as const;
+	const SLOT_LABELS: Record<(typeof SLOTS)[number], string> = {
+		hair: "Pelo",
+		shirt: "Camisa",
+		pants: "Pantalón",
+		shoes: "Zapatos",
+		weapon: "Arma",
+		accessory: "Accesorio",
+	};
+
+	const slotsEl = document.getElementById("equipment-slots")!;
+	const inventoryEl = document.getElementById("inventory-list")!;
+	const inventoryEmptyEl = document.getElementById("inventory-empty")!;
+	const errorEl = document.getElementById("inventory-error")!;
+
+	const buttonClass =
+		"border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+	const dangerButtonClass =
+		"border-2 border-red px-3 py-1 font-mono text-xs text-red transition-colors hover:bg-red hover:text-bg";
+
+	function showError(message: string): void {
+		errorEl.textContent = message;
+		errorEl.classList.remove("hidden");
+	}
+
+	function clearError(): void {
+		errorEl.classList.add("hidden");
+	}
+
+	async function refresh(): Promise<void> {
+		clearError();
+		try {
+			const [equipmentState, inventory] = await Promise.all([getEquipment(), getInventory()]);
+			const equippedIds = new Set(equipmentState.equipment.map((row) => row.inventory_item_id));
+			renderEquipment(equipmentState.equipment);
+			renderInventory(inventory, equippedIds);
+		} catch (err) {
+			showError(errorMessage(err, "No se pudo cargar el inventario. ¿El backend está corriendo?"));
+		}
+	}
+
+	function renderEquipment(equipment: CharacterEquipmentDto[]): void {
+		slotsEl.innerHTML = "";
+		const bySlot = new Map(equipment.map((row) => [row.slot, row]));
+
+		for (const slot of SLOTS) {
+			const row = bySlot.get(slot);
+			const wrapper = document.createElement("div");
+			wrapper.className = "flex items-center justify-between border border-outline-strong px-3 py-2";
+
+			const label = document.createElement("div");
+			label.className = "flex flex-col";
+			label.innerHTML = `
+				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">${SLOT_LABELS[slot]}</span>
+				<span class="text-sm text-text">${row ? row.inventory_item.item.name : "Vacío"}</span>
+			`;
+			wrapper.appendChild(label);
+
+			if (row) {
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = dangerButtonClass;
+				btn.textContent = "Quitar";
+				btn.addEventListener("click", async () => {
+					btn.disabled = true;
+					try {
+						await unequipSlot(slot);
+						await refresh();
+					} catch (err) {
+						showError(errorMessage(err, "No se pudo quitar el item."));
+						btn.disabled = false;
+					}
+				});
+				wrapper.appendChild(btn);
+			}
+
+			slotsEl.appendChild(wrapper);
+		}
+	}
+
+	function renderInventory(inventory: InventoryItemDto[], equippedIds: Set<number>): void {
+		inventoryEl.innerHTML = "";
+		inventoryEmptyEl.classList.toggle("hidden", inventory.length > 0);
+
+		// F8: vender opera sobre el TOTAL que el personaje tiene de ese
+		// item (mismo criterio que InventoryGrantService::consume en el
+		// backend, que junta todas las filas/stacks) -no solo la fila que
+		// disparó el botón-, para no bloquear al jugador si el mismo item
+		// quedó repartido en más de un stack.
+		const totalsByKey = new Map<string, number>();
+		for (const row of inventory) {
+			totalsByKey.set(row.item.key, (totalsByKey.get(row.item.key) ?? 0) + row.quantity);
+		}
+
+		for (const row of inventory) {
+			const isEquipable = SLOTS.includes(row.item.subtype as (typeof SLOTS)[number]);
+			const isSellable = row.item.sell_value > 0;
+
+			const wrapper = document.createElement("div");
+			wrapper.className = "flex flex-col gap-2 border border-outline-strong px-3 py-2";
+
+			const topRow = document.createElement("div");
+			topRow.className = "flex items-center justify-between gap-2";
+
+			const label = document.createElement("div");
+			label.className = "flex flex-col";
+			label.innerHTML = `
+				<span class="text-sm text-text">${row.item.icon ? row.item.icon + " " : ""}${row.item.name}</span>
+				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">${row.item.key} · x${row.quantity}</span>
+			`;
+			topRow.appendChild(label);
+
+			const actions = document.createElement("div");
+			actions.className = "flex items-center gap-2";
+
+			if (isEquipable) {
+				const alreadyEquipped = equippedIds.has(row.id);
+				const btn = document.createElement("button");
+				btn.type = "button";
+				btn.className = buttonClass;
+				btn.textContent = alreadyEquipped ? "Equipado" : "Equipar";
+				btn.disabled = alreadyEquipped;
+				btn.dataset.inventoryItemId = String(row.id);
+				btn.addEventListener("click", async () => {
+					btn.disabled = true;
+					try {
+						await equipItem(row.id);
+						await refresh();
+					} catch (err) {
+						showError(errorMessage(err, "No se pudo equipar el item."));
+						btn.disabled = false;
+					}
+				});
+				actions.appendChild(btn);
+			}
+
+			if (isSellable) {
+				const sellConfirmEl = document.createElement("div");
+				sellConfirmEl.className = "hidden";
+
+				const sellBtn = document.createElement("button");
+				sellBtn.type = "button";
+				sellBtn.className = buttonClass;
+				sellBtn.textContent = "Vender";
+				sellBtn.addEventListener("click", () => {
+					sellBtn.classList.add("hidden");
+					sellConfirmEl.classList.remove("hidden");
+				});
+				actions.appendChild(sellBtn);
+
+				renderSellConfirm(sellConfirmEl, row, totalsByKey.get(row.item.key) ?? row.quantity, () => {
+					sellConfirmEl.classList.add("hidden");
+					sellBtn.classList.remove("hidden");
+				});
+				wrapper.appendChild(sellConfirmEl);
+			}
+
+			topRow.appendChild(actions);
+			wrapper.appendChild(topRow);
+			inventoryEl.appendChild(wrapper);
+		}
+	}
+
+	// F8, sección 17: la venta se confirma antes de ejecutarse -nunca un
+	// solo click accidental-. Stepper simple +/- acotado a lo que
+	// realmente se posee (`maxQuantity`, ya sumado entre stacks).
+	function renderSellConfirm(
+		container: HTMLElement,
+		row: InventoryItemDto,
+		maxQuantity: number,
+		onCancel: () => void
+	): void {
+		let quantity = 1;
+
+		container.innerHTML = `
+			<div class="flex flex-wrap items-center gap-3 border-t border-outline-strong pt-2">
+				<div class="flex items-center gap-2">
+					<button type="button" data-action="dec" class="${buttonClass}">−</button>
+					<span data-role="qty" class="w-10 text-center font-mono text-sm text-text">1</span>
+					<button type="button" data-action="inc" class="${buttonClass}">+</button>
+				</div>
+				<span class="font-mono text-xs text-muted">
+					Valor unitario: ${row.item.sell_value} 💰 · Total: <span data-role="total" class="text-text">${row.item.sell_value}</span> 💰
+				</span>
+				<div class="ml-auto flex items-center gap-2">
+					<button type="button" data-action="cancel" class="${dangerButtonClass}">Cancelar</button>
+					<button type="button" data-action="confirm" class="${buttonClass}">Vender</button>
+				</div>
+			</div>
+		`;
+
+		const qtyEl = container.querySelector<HTMLElement>('[data-role="qty"]')!;
+		const totalEl = container.querySelector<HTMLElement>('[data-role="total"]')!;
+		const decBtn = container.querySelector<HTMLButtonElement>('[data-action="dec"]')!;
+		const incBtn = container.querySelector<HTMLButtonElement>('[data-action="inc"]')!;
+		const confirmBtn = container.querySelector<HTMLButtonElement>('[data-action="confirm"]')!;
+
+		function render(): void {
+			qtyEl.textContent = String(quantity);
+			totalEl.textContent = String(quantity * row.item.sell_value);
+			decBtn.disabled = quantity <= 1;
+			incBtn.disabled = quantity >= maxQuantity;
+		}
+
+		decBtn.addEventListener("click", () => {
+			quantity = Math.max(1, quantity - 1);
+			render();
+		});
+		incBtn.addEventListener("click", () => {
+			quantity = Math.min(maxQuantity, quantity + 1);
+			render();
+		});
+		container.querySelector('[data-action="cancel"]')?.addEventListener("click", onCancel);
+		confirmBtn.addEventListener("click", async () => {
+			confirmBtn.disabled = true;
+			try {
+				await sellItem(row.item.key, quantity);
+				window.dispatchEvent(new CustomEvent("coins:changed"));
+				await refresh();
+			} catch (err) {
+				showError(errorMessage(err, "No se pudo vender el item."));
+				confirmBtn.disabled = false;
+			}
+		});
+
+		render();
+	}
+
+	refresh();
+</script>

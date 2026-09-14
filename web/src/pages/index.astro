@@ -1,0 +1,126 @@
+---
+// Fase 10.5.1: landing pública. Antes de esta fase era el scaffold
+// default de Astro sin tocar -esta es la primera pantalla real que ve
+// cualquier visitante, así que es la que más pesa en la primera
+// impresión (ver docs/AUDITORIA_Y_ROADMAP_BETA.md, sección D-1). Usa
+// `PublicLayout` (sin HUD/Nav/Chat, esas pertenecen a la app ya
+// autenticada) pero el MISMO `theme.css`/fuente pixel que el resto del
+// juego -misma identidad visual, solo sin el shell interno-.
+//
+// Fondo: `public/backgrounds/fondo_001.png` (pedido explícito), una
+// escena de ruinas/bosque/laguna en pixel-art -no es literalmente un
+// pueblo japonés con dojo como describía la dirección artística ideal,
+// pero cumple el mismo rol (ambiental, cálido, de aventura, sin
+// personajes gigantes ni texto incrustado) y es el asset real disponible
+// hoy; no se generó ningún asset nuevo (sección 16 de la fase).
+//
+// Nombre del juego: el proyecto no tiene todavía un nombre real en
+// ningún lado del código. Consultado con el usuario, se optó
+// explícitamente por un wordmark genérico y reemplazable en vez de
+// inventar una marca -"◆ ADVENTURE ◆"-, para no comprometerse a una
+// identidad que no fue decidida.
+import PublicLayout from "../layouts/PublicLayout.astro";
+import Icon, { type IconName } from "../components/ui/Icon.astro";
+
+const features: { icon: IconName; title: string; text: string }[] = [
+  { icon: "world", title: "EXPLORA", text: "Descubre pequeños lugares y secretos." },
+  { icon: "pet", title: "CUIDA", text: "Enviá a tu mascota a explorar mientras estás fuera." },
+  { icon: "craft", title: "CONSTRUYE", text: "Conseguí recursos, fabricá objetos y decorá tu casa." },
+  { icon: "arena", title: "COMBATE", text: "Enfrentate a otros aventureros en combates asíncronos." },
+];
+---
+
+<PublicLayout title="Adventure — Un pequeño mundo pixel-art">
+	<main class="relative flex min-h-screen w-full flex-col overflow-hidden">
+		<div
+			class="absolute inset-0 bg-cover bg-center"
+			style="background-image: url('/backgrounds/fondo_001.png'); image-rendering: pixelated;"
+			aria-hidden="true"
+		>
+		</div>
+		<div
+			class="absolute inset-0 bg-gradient-to-b from-black/75 via-black/25 to-black/85"
+			aria-hidden="true"
+		>
+		</div>
+
+		<div class="relative z-10 flex min-h-screen flex-col items-center justify-between px-4 py-8 sm:py-12">
+			<header class="landing-fade-in">
+				<span class="font-display text-lg tracking-widest text-text sm:text-2xl">◆ ADVENTURE ◆</span>
+			</header>
+
+			<section class="landing-fade-in flex max-w-xl flex-col items-center gap-6 text-center" style="animation-delay: 80ms;">
+				<p class="m-0 text-base leading-relaxed text-text sm:text-lg">
+					Un pequeño mundo.<br />
+					Una aventura que continúa aunque te desconectes.
+				</p>
+
+				<div class="flex flex-col items-center gap-3">
+					<a
+						id="cta-play"
+						href="/register"
+						class="border-2 border-cyan bg-cyan px-8 py-3 font-display text-xs text-bg shadow-pixel transition-transform hover:scale-105 active:scale-95 sm:text-sm"
+					>
+						JUGAR
+					</a>
+					<a href="/register" class="border-2 border-pink px-6 py-2 font-mono text-sm text-pink transition-colors hover:bg-pink hover:text-bg">
+						Crear personaje
+					</a>
+					<a href="/login" class="font-mono text-xs uppercase tracking-wide text-muted transition-colors hover:text-text">
+						Iniciar sesión
+					</a>
+				</div>
+			</section>
+
+			<section class="landing-fade-in game-panel game-panel--notched w-full max-w-3xl bg-bg/80 px-4 py-4" style="animation-delay: 160ms;">
+				<div class="flex flex-wrap items-start justify-center gap-x-6 gap-y-4 sm:flex-nowrap">
+					{features.map((feature, index) => (
+						<>
+							{index > 0 && <div class="game-divider hidden h-auto sm:block" />}
+							<div class="flex min-w-[9rem] flex-1 flex-col items-center gap-1.5 text-center">
+								<Icon name={feature.icon} class="h-6 w-6 text-cyan" />
+								<span class="font-display text-[0.6rem] text-text">{feature.title}</span>
+								<span class="text-xs leading-snug text-muted">{feature.text}</span>
+							</div>
+						</>
+					))}
+				</div>
+			</section>
+		</div>
+	</main>
+
+	<script>
+		import { isAuthenticated } from "../game/net/ApiClient";
+
+		// Sección 6: JUGAR lleva directo al Mundo si ya hay sesión, o al
+		// registro si no -sin inventar un flujo nuevo, reusa el guard que
+		// ya existe (isAuthenticated() vía localStorage)-.
+		const playButton = document.getElementById("cta-play") as HTMLAnchorElement;
+		if (isAuthenticated()) {
+			playButton.href = "/play";
+		}
+	</script>
+</PublicLayout>
+
+<style>
+	.landing-fade-in {
+		animation: landing-fade-in 500ms ease-out both;
+	}
+
+	@keyframes landing-fade-in {
+		from {
+			opacity: 0;
+			transform: translateY(8px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.landing-fade-in {
+			animation: none;
+		}
+	}
+</style>

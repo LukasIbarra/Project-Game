@@ -1,0 +1,39 @@
+---
+// Fase 4.1: botón/enlace con la identidad visual del juego (hoy: CTA de
+// Home y "Enviar" del chat). Reutilizable para cualquier acción futura.
+// Nota: las clases de Tailwind quedan como strings COMPLETOS en el mapa
+// `styles` a propósito -si se arman por interpolación (`hover:${color}`),
+// el escaneo estático de Tailwind no las detecta y no genera el CSS.
+interface Props {
+  href?: string;
+  variant?: "outline" | "solid";
+  color?: "pink" | "cyan" | "red";
+  type?: "button" | "submit";
+  id?: string;
+}
+
+const { href, variant = "outline", color = "cyan", type = "button", id } = Astro.props;
+
+const styles: Record<string, string> = {
+  "outline:pink": "border-2 border-pink text-pink hover:bg-pink hover:text-bg",
+  "outline:cyan": "border-2 border-cyan text-cyan hover:bg-cyan hover:text-bg",
+  "outline:red": "border-2 border-red text-red hover:bg-red hover:text-bg",
+  "solid:pink": "border-2 border-pink bg-pink text-bg",
+  "solid:cyan": "border-2 border-cyan bg-cyan text-bg",
+  "solid:red": "border-2 border-red bg-red text-bg",
+};
+
+const classes = `inline-flex items-center justify-center gap-2 px-4 py-2 font-mono text-sm transition-colors ${styles[`${variant}:${color}`]}`;
+---
+
+{
+  href ? (
+    <a href={href} class={classes}>
+      <slot />
+    </a>
+  ) : (
+    <button type={type} id={id} class={classes}>
+      <slot />
+    </button>
+  )
+}

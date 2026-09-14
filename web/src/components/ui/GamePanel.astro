@@ -1,0 +1,26 @@
+---
+// Fase 4.1B: envoltorio formal del sistema de paneles (antes cada página
+// aplicaba la clase .game-panel a mano). Centraliza el patrón "panel con
+// header opcional" que se repite en Home, Placeholder y Chat.
+//
+// `class` decora el <section> exterior (tamaño, márgenes, posición);
+// `bodyClass` decora el <div> que envuelve al <slot/> (layout interno:
+// flex, padding, gap) porque el slot vive un nivel más adentro que la
+// sección cuando hay header.
+interface Props {
+  title?: string;
+  notched?: boolean;
+  class?: string;
+  bodyClass?: string;
+}
+
+const { title, notched = false, class: className = "", bodyClass = "" } = Astro.props;
+const panelClass = `game-panel${notched ? " game-panel--notched" : ""} ${className}`.trim();
+---
+
+<section class={panelClass}>
+  {title && <header class="game-panel__header text-cyan">{title}</header>}
+  <div class={`game-panel__body ${bodyClass}`.trim()}>
+    <slot />
+  </div>
+</section>

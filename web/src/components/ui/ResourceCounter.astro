@@ -1,0 +1,25 @@
+---
+// Fase 4.1B: par ícono+valor (hoy: monedas/recursos en el HUD). Reutilizable
+// para cualquier contador simple (inventario, tienda, recursos de crafting).
+import Icon, { type IconName } from "./Icon.astro";
+
+interface Props {
+  icon: IconName;
+  value: string | number;
+  color?: "pink" | "cyan";
+  title?: string;
+  valueId?: string;
+}
+
+const { icon, value, color = "cyan", title, valueId } = Astro.props;
+
+const iconClass: Record<string, string> = {
+  pink: "text-pink",
+  cyan: "text-cyan",
+};
+---
+
+<span class="flex items-center gap-1 font-mono text-xs text-text" title={title}>
+  <Icon name={icon} class={`h-3.5 w-3.5 ${iconClass[color]}`} />
+  <span id={valueId}>{value}</span>
+</span>

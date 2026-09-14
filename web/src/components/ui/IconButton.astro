@@ -1,0 +1,29 @@
+---
+// Fase 4.1B: botón cuadrado de ícono (hoy: notificaciones y toggle del
+// chat en el HUD). Reutilizable para cualquier acción compacta futura.
+import Icon, { type IconName } from "./Icon.astro";
+
+interface Props {
+  icon: IconName;
+  label: string;
+  id?: string;
+  variant?: "muted" | "red" | "cyan";
+}
+
+const { icon, label, id, variant = "muted" } = Astro.props;
+
+const colorClass: Record<string, string> = {
+  muted: "text-muted",
+  red: "text-red",
+  cyan: "text-cyan",
+};
+---
+
+<button
+  id={id}
+  title={label}
+  aria-label={label}
+  class={`grid h-7 w-7 place-items-center border border-outline-strong bg-transparent transition-colors hover:border-text hover:text-text ${colorClass[variant]}`}
+>
+  <Icon name={icon} class="h-4 w-4" />
+</button>

@@ -1,0 +1,105 @@
+---
+// Fase 4.1B: HUD como player status bar -grupos visuales separados por
+// divisores finos, en vez de una fila plana de elementos-. Sigue siendo
+// HTML/CSS puro (Tailwind + theme.css), fuera del canvas de Phaser.
+//
+// Nivel, experiencia y recursos siguen siendo MOCK explícito (ver
+// src/data/mockPlayerProgress.ts) -esos sistemas no existen todavía-.
+// Las monedas SÍ son reales desde F8 (character.coins vía
+// ApiClient.getCharacter()), mismo motivo por el que el nombre real
+// requiere JS de cliente: depende del token en localStorage.
+import GameBadge from "../ui/GameBadge.astro";
+import GameButton from "../ui/GameButton.astro";
+import Icon from "../ui/Icon.astro";
+import IconButton from "../ui/IconButton.astro";
+import ProgressBar from "../ui/ProgressBar.astro";
+import ResourceCounter from "../ui/ResourceCounter.astro";
+import { MOCK_PLAYER_PROGRESS } from "../../data/mockPlayerProgress";
+---
+
+<header class="game-panel m-2 flex items-center gap-4 px-3 py-2">
+  <div class="grid h-8 w-8 shrink-0 place-items-center border-2 border-outline-strong font-display text-[0.6rem] text-cyan">
+    ◆
+  </div>
+
+  <div class="game-divider" />
+
+  <div class="flex min-w-0 items-center gap-2">
+    <div
+      id="hud-avatar"
+      class="grid h-9 w-9 shrink-0 place-items-center border-2 border-outline-strong bg-surface-2 font-mono font-bold text-pink"
+    >
+      ?
+    </div>
+    <div class="flex min-w-32 flex-col gap-1">
+      <span id="hud-name" class="truncate text-sm text-text">Cargando…</span>
+      <ProgressBar percent={MOCK_PLAYER_PROGRESS.expPercent} color="cyan" title="Experiencia (demo)" />
+    </div>
+    <GameBadge text={`Nv. ${MOCK_PLAYER_PROGRESS.level}`} variant="cyan" />
+  </div>
+
+  <div class="game-divider hidden sm:block" />
+
+  <div class="hidden items-center gap-4 sm:flex">
+    <ResourceCounter icon="coin" value="…" color="pink" title="Monedas" valueId="hud-coins" />
+    <ResourceCounter icon="resource" value={MOCK_PLAYER_PROGRESS.resources} color="cyan" title="Recursos (demo)" />
+  </div>
+
+  <div class="ml-auto flex items-center gap-2">
+    <IconButton id="hud-chat-toggle" icon="chat" label="Chat global" variant="cyan" />
+    <IconButton id="hud-notifications" icon="bell" label="Notificaciones (demo)" variant="red" />
+    <div class="game-divider" />
+    <GameButton id="hud-logout" variant="outline" color="red">
+      <Icon name="logout" class="h-3.5 w-3.5" />
+      Salir
+    </GameButton>
+  </div>
+</header>
+
+<script>
+  import { me, logout, getCharacter } from "../../game/net/ApiClient";
+
+  const nameEl = document.getElementById("hud-name")!;
+  const avatarEl = document.getElementById("hud-avatar")!;
+  const coinsEl = document.getElementById("hud-coins")!;
+
+  me()
+    .then((user) => {
+      nameEl.textContent = user.name;
+      avatarEl.textContent = user.name.charAt(0).toUpperCase();
+    })
+    .catch(() => {
+      // Backend caído o sesión inválida: el HUD no debe romperse por eso.
+      nameEl.textContent = "Jugador";
+      avatarEl.textContent = "?";
+    });
+
+  function refreshCoins(): void {
+    getCharacter()
+      .then((character) => {
+        coinsEl.textContent = character.coins.toLocaleString();
+      })
+      .catch(() => {
+        coinsEl.textContent = "?";
+      });
+  }
+
+  refreshCoins();
+
+  // F8: /inventory y /crafting disparan este evento global después de
+  // vender/fabricar para que el saldo del HUD se vea actualizado al
+  // instante, sin esperar una recarga de página ni duplicar el fetch de
+  // coins en cada página (un solo lugar sabe pintar el HUD).
+  window.addEventListener("coins:changed", refreshCoins);
+
+  document.getElementById("hud-logout")?.addEventListener("click", async () => {
+    await logout().catch(() => {});
+    window.location.href = "/login";
+  });
+
+  // El HUD no gestiona su propio estado de colapso: reusa el toggle que
+  // ya vive en GlobalChat.astro para no duplicar esa lógica en dos sitios.
+  document.getElementById("hud-chat-toggle")?.addEventListener("click", () => {
+    document.getElementById("global-chat-toggle")?.click();
+  });
+</script>

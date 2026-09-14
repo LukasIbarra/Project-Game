@@ -1,0 +1,30 @@
+---
+// Fase 10.5.1: primer input reutilizable del sistema de UI (antes cada
+// página lo armaba suelto, ej. `#recipe-search` en crafting.astro). Mismo
+// tratamiento visual que ya se usaba ahí -fondo oscuro, borde pixelado,
+// foco en cyan- para no inventar un estilo nuevo de formulario, solo
+// formalizarlo como componente ahora que login/register lo necesitan dos
+// veces cada uno.
+interface Props {
+  label: string;
+  name: string;
+  type?: string;
+  autocomplete?: string;
+  minlength?: number;
+  required?: boolean;
+}
+
+const { label, name, type = "text", autocomplete, minlength, required = true } = Astro.props;
+---
+
+<label class="flex flex-col gap-1 text-left">
+  <span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">{label}</span>
+  <input
+    name={name}
+    type={type}
+    autocomplete={autocomplete}
+    minlength={minlength}
+    required={required}
+    class="border border-outline-strong bg-bg px-3 py-2 text-sm text-text placeholder:text-muted focus:border-cyan focus:outline-none"
+  />
+</label>

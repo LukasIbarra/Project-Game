@@ -1,0 +1,126 @@
+{
+  "_comment": "Mapa de clave lógica -> asset físico real. El código del juego SOLO referencia claves (ej. hair:5), nunca rutas de archivo. Reemplazar assets provisionales por definitivos = editar este archivo, cero cambios de código.",
+  "version": 1,
+  "body": {
+    "base": {
+      "sheet": "characters/player/base/16x32 Idle-Sheet.png",
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "frames": [0, 1, 2, 3],
+      "frameRate": 6
+    }
+  },
+  "hair": {},
+  "shirt": {},
+  "pants": {},
+  "shoes": {},
+  "weapon": {},
+  "accessory": {},
+  "furniture": {
+    "sheet": "furniture/Interior_Props_01.png",
+    "frames": {
+      "small_chest": { "x": 176, "y": 64, "width": 32, "height": 32 },
+      "bed_frame": { "x": 0, "y": 288, "width": 32, "height": 64 },
+      "nightstand": { "x": 96, "y": 80, "width": 16, "height": 32 },
+      "wooden_crate": { "x": 208, "y": 112, "width": 16, "height": 32 },
+      "wooden_chair": { "x": 64, "y": 0, "width": 16, "height": 32 },
+      "simple_table": { "x": 0, "y": 96, "width": 48, "height": 32 },
+      "decorative_pot": { "x": 16, "y": 352, "width": 16, "height": 32 }
+    }
+  },
+  "pets": {},
+  "worldPlayer": {
+    "idle": {
+      "sheet": "characters/player/base/16x32 Idle-Sheet.png",
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "columns": 4,
+      "rows": 5,
+      "frameRate": 4
+    },
+    "walk": {
+      "sheet": "characters/player/base/16x32 Walk-Sheet.png",
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "columns": 4,
+      "rows": 5,
+      "frameRate": 8
+    },
+    "run": {
+      "sheet": "characters/player/base/16x32 Run-Sheet.png",
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "columns": 6,
+      "rows": 5,
+      "frameRate": 12
+    }
+  },
+  "housePlayer": {
+    "idle": {
+      "sheet": "characters/player/base/16x16 Idle-Sheet.png",
+      "frameWidth": 24,
+      "frameHeight": 24,
+      "columns": 4,
+      "rows": 5,
+      "frameRate": 4
+    },
+    "walk": {
+      "sheet": "characters/player/base/16x16 Walk-Sheet.png",
+      "frameWidth": 24,
+      "frameHeight": 24,
+      "columns": 4,
+      "rows": 5,
+      "frameRate": 8
+    },
+    "run": {
+      "sheet": "characters/player/base/16x16 Run-Sheet.png",
+      "frameWidth": 24,
+      "frameHeight": 24,
+      "columns": 6,
+      "rows": 5,
+      "frameRate": 12
+    }
+  },
+  "npcs": {
+    "peasant": {
+      "idle": {
+        "sheet": "world/entities/npc-peasant-idle.png",
+        "frameWidth": 64,
+        "frameHeight": 64,
+        "frames": [0, 1, 2, 3],
+        "frameRate": 4
+      },
+      "walk": {
+        "sheet": "world/entities/npc-peasant-walk.png",
+        "frameWidth": 64,
+        "frameHeight": 64,
+        "frames": [0, 1, 2, 3, 4, 5],
+        "frameRate": 8
+      }
+    }
+  },
+  "tiledMap": { "sheet": "world/mapa_base.json" },
+  "roomMap": { "sheet": "world/room.json" },
+  "tiledTilesets": {
+    "room_interior_walls": { "sheet": "environment/Environment/Structures/Buildings/Interior/Interior_Walls_01.png" },
+    "room_interior_props": { "sheet": "furniture/Interior_Props_01.png" },
+    "room_workbench": { "sheet": "environment/Environment/Structures/Stations/Workbench/Workbench.png" },
+    "room_anvil": { "sheet": "environment/Environment/Structures/Stations/Anvil/Anvil.png" },
+    "wall_tiles": { "sheet": "environment/Environment/Tilesets/Wall_Tiles.png" },
+    "walls_buildings": { "sheet": "environment/Environment/Structures/Buildings/Walls.png" },
+    "floors": { "sheet": "environment/Environment/Tilesets/Floors_Tiles.png" },
+    "water": { "sheet": "environment/Environment/Tilesets/Water_tiles.png" },
+    "tree_size_02": { "sheet": "environment/Environment/Props/Static/Trees/Model_01/Size_02.png" },
+    "tree_size_03": { "sheet": "environment/Environment/Props/Static/Trees/Model_01/Size_03.png" },
+    "tree_size_04": { "sheet": "environment/Environment/Props/Static/Trees/Model_01/Size_04.png" },
+    "tree_size_05": { "sheet": "environment/Environment/Props/Static/Trees/Model_01/Size_05.png" },
+    "props_buildings": { "sheet": "environment/Environment/Structures/Buildings/Props.png" },
+    "roofs": { "sheet": "environment/Environment/Structures/Buildings/Roofs.png" },
+    "shadows_props": { "sheet": "environment/Environment/Props/Static/Shadows.png" },
+    "shadows_buildings": { "sheet": "environment/Environment/Structures/Buildings/Shadows.png" },
+    "furniture": { "sheet": "environment/Environment/Props/Static/Furniture.png" },
+    "vegetation": { "sheet": "environment/Environment/Props/Static/Vegetation.png" },
+    "rocks": { "sheet": "environment/Environment/Props/Static/Rocks.png" },
+    "npc_idle_sheet": { "sheet": "world/entities/npc-peasant-idle.png" }
+  }
+}

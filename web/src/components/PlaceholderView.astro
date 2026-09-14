@@ -1,0 +1,27 @@
+---
+// Fase 4.1B: vista placeholder para módulos que pertenecen a fases futuras
+// (Casa, Mascota, Arena, Social, Inventario, Ranking). Sin funcionalidad
+// real todavía — solo deja la navegación completa y demuestra el Shell.
+import GameBadge from "./ui/GameBadge.astro";
+import GamePanel from "./ui/GamePanel.astro";
+import Icon, { type IconName } from "./ui/Icon.astro";
+
+interface Props {
+  icon: IconName;
+  title: string;
+  description: string;
+}
+
+const { icon, title, description } = Astro.props;
+---
+
+<GamePanel
+  notched
+  class="m-auto max-w-md"
+  bodyClass="flex flex-col items-center gap-3 px-12 py-10 text-center"
+>
+  <Icon name={icon} class="h-10 w-10 text-cyan" />
+  <h1 class="m-0 text-lg text-text">{title}</h1>
+  <p class="m-0 text-sm leading-relaxed text-muted">{description}</p>
+  <GameBadge text="Próximamente" variant="cyan" />
+</GamePanel>

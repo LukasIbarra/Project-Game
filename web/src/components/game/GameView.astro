@@ -1,0 +1,37 @@
+---
+// Fase 4.1B (10.1): marco de la Game View + fondo ambiental. TODO esto es
+// HTML/CSS alrededor de Phaser -no toca main.ts, PreloadScene,
+// CharacterRenderer, WorldScene ni el manifest-. Phaser sigue recibiendo
+// exactamente el mismo id de contenedor de siempre; no sabe que este
+// marco existe.
+//
+// El fondo es una prop (`background`) justamente para que cambiarlo por
+// sección sea trivial más adelante sin tocar Phaser ni este componente:
+//   <GameView title="Mundo" background="/backgrounds/fondo_1.png" />
+//   <GameView title="Casa"  background="/backgrounds/fondo_casa.png" />
+// Si no se pasa `background`, el marco se ve igual que en Fase 4.1 (sin
+// capa ambiental) - la prop es opcional a propósito.
+interface Props {
+  title: string;
+  containerId?: string;
+}
+
+const { title, containerId = "game-container" } = Astro.props;
+---
+
+<div class="game-panel game-panel--notched mx-auto flex w-fit shrink-0 flex-col">
+  <header class="game-panel__header text-cyan">
+    <span>{title}</span>
+    <span class="game-dot ml-auto" />
+    <span class="font-mono text-[0.55rem] normal-case text-muted">en línea</span>
+  </header>
+
+  <div class="relative bg-[#111116] p-8">
+    <div id={containerId} class="relative mx-auto leading-none" />
+    <!-- Room (modo edición): overlay opcional posicionado sobre el canvas,
+         para no crear una página separada de edición (sección 9 de esa
+         fase). Vacío por defecto -/play no pasa nada acá, se ve igual que
+         siempre-. -->
+    <slot />
+  </div>
+</div>

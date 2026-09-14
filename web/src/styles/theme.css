@@ -1,0 +1,124 @@
+/* Fase 4.1: fuente única de verdad del lenguaje visual del juego.
+   Tailwind entra acá (import + @theme, que registra nuestros tokens como
+   utilidades de Tailwind: bg-surface, text-pink, shadow-pixel, etc.).
+   Tailwind resuelve layout/spacing/flex/grid/responsive; las clases de
+   abajo (.game-panel, etc.) son el vocabulario visual propio -pixel art,
+   bordes duros, sombra sin blur- que Tailwind no tiene opinión sobre. */
+@import "tailwindcss";
+
+@theme {
+  --color-bg: #0b0b0d;
+  --color-surface: #17171c;
+  --color-surface-2: #1e1e24;
+  --color-outline: #2c2c34;
+  --color-outline-strong: #3a3a44;
+
+  --color-text: #ece8e3;
+  --color-muted: #8f8d96;
+
+  --color-pink: #c98a9a;
+  --color-cyan: #7fb3b8;
+  --color-red: #b3555c;
+
+  --shadow-pixel: 3px 3px 0 rgba(0, 0, 0, 0.5);
+  --shadow-pixel-sm: 2px 2px 0 rgba(0, 0, 0, 0.5);
+
+  --radius-game: 2px;
+
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "Courier New", monospace;
+  /* Fuente pixel para acentos puntuales (logo, badges, títulos cortos) -
+     ver AppShell.astro para el <link> de Google Fonts. NUNCA para texto
+     largo (chat, descripciones): a ese tamaño se vuelve ilegible. */
+  --font-display: "Press Start 2P", var(--font-mono);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+/* Panel base del lenguaje visual: borde marcado + un hairline interior
+   sutil + sombra dura desplazada, sin blur ni gradientes. Todo panel del
+   juego (HUD, nav, cards, chat, game view) parte de esta clase y la
+   combina con utilidades de Tailwind para el layout. */
+.game-panel {
+  background: var(--color-surface);
+  border: 2px solid var(--color-outline-strong);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    var(--shadow-pixel);
+  border-radius: var(--radius-game);
+}
+
+/* Modificador: esquinas cortadas al estilo cuadro de diálogo retro/RPG.
+   Usar con moderación (regla de la fase: menos elementos, mejor
+   diseñados) -reservado para paneles que quieren sentirse "de juego"
+   con más fuerza (chat, game view), no todos los paneles lo necesitan. */
+.game-panel--notched {
+  clip-path: polygon(
+    10px 0,
+    100% 0,
+    100% calc(100% - 10px),
+    calc(100% - 10px) 100%,
+    0 100%,
+    0 10px
+  );
+}
+
+/* Header diferenciado dentro de un panel: fondo un tono más claro,
+   borde inferior, acento de color a la izquierda y tipografía pixel en
+   mayúsculas para las etiquetas cortas del lenguaje visual del juego. */
+.game-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: var(--color-surface-2);
+  border-bottom: 2px solid var(--color-outline-strong);
+  padding: 0.5rem 0.75rem;
+  font-family: var(--font-display);
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.game-panel__header::before {
+  content: "";
+  width: 3px;
+  height: 0.85rem;
+  background: var(--color-cyan);
+}
+
+/* Separador entre grupos visuales (hoy: HUD). Una línea, no una caja. */
+.game-divider {
+  width: 1px;
+  align-self: stretch;
+  background: var(--color-outline-strong);
+}
+
+/* Punto de estado pequeño (hoy: indicador decorativo del Game View). */
+.game-dot {
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 999px;
+  background: var(--color-cyan);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-cyan) 25%, transparent);
+}

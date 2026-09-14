@@ -23,9 +23,16 @@ Route::get('/v1/ping', function () {
     ]);
 });
 
+// Fase Deploy: límite extra sobre el throttle:api global (60/min) —
+// login/register son los blancos típicos de fuerza bruta/spam de cuentas
+// en una demo pública, así que además de la protección genérica quedan
+// con un límite propio más estricto (throttle nativo de Laravel, sin
+// dependencias nuevas).
 Route::prefix('v1/auth')->group(function () {
-    Route::post('/register', [AuthController::class, 'register']);
-    Route::post('/login', [AuthController::class, 'login']);
+    Route::middleware('throttle:10,1')->group(function () {
+        Route::post('/register', [AuthController::class, 'register']);
+        Route::post('/login', [AuthController::class, 'login']);
+    });
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);

@@ -1,0 +1,22 @@
+---
+// Fase 4.1: barra de progreso genérica (hoy: EXP en el HUD). Reutilizable
+// para barras de vida, expediciones, crafting, etc. en fases posteriores.
+interface Props {
+  percent: number;
+  color?: "pink" | "cyan" | "red";
+  title?: string;
+}
+
+const { percent, color = "cyan", title } = Astro.props;
+const clamped = Math.max(0, Math.min(100, percent));
+
+const fillClass: Record<string, string> = {
+  pink: "bg-pink",
+  cyan: "bg-cyan",
+  red: "bg-red",
+};
+---
+
+<div class="h-[0.4rem] w-full border border-outline-strong bg-bg" title={title}>
+  <div class={fillClass[color]} style={`height:100%; width:${clamped}%`} />
+</div>

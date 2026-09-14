@@ -1,0 +1,70 @@
+---
+// Fase 4: Application Shell. Toda página "dentro de la app" (post-login)
+// usa este layout en vez de armar su propio <html>. Centraliza el guard
+// de auth (antes duplicado en cada página) y compone HUD + Nav + Chat +
+// Main.
+//
+// El guard corre en cliente porque el token vive en localStorage (Astro
+// renderiza esto de forma estática/por request, no tiene acceso a
+// localStorage del navegador) — mismo approach aceptado desde la Fase 1.
+//
+// Fase 4.1: el layout (flex/alto de pantalla/scroll) ahora es Tailwind;
+// theme.css solo aporta tokens + el lenguaje visual propio (game-panel).
+import "../styles/theme.css";
+import Hud from "../components/hud/Hud.astro";
+import NavBar from "../components/nav/NavBar.astro";
+import GlobalChat from "../components/chat/GlobalChat.astro";
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<html lang="es">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>{title}</title>
+		<!-- Fuente pixel para acentos puntuales (logo, badges) - ver theme.css.
+		     Si no hay red, cae al monospace del sistema; no rompe nada. -->
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+			rel="stylesheet"
+		/>
+	</head>
+<body class="game-app bg-bg text-text">
+	<!-- Ambient background -->
+	<div
+		class="pointer-events-none fixed inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-[0.12]"
+		style="background-image: url('/backgrounds/fondo_05.png'); image-rendering: pixelated;"
+		aria-hidden="true"
+	></div>
+
+	<!-- Application -->
+	<div class="relative z-10 flex min-h-screen flex-col">
+		<Hud />
+
+		<div class="flex flex-1 overflow-hidden">
+			<NavBar />
+
+			<main class="flex flex-1 flex-col overflow-auto p-4">
+				<slot />
+			</main>
+
+			<GlobalChat />
+		</div>
+	</div>
+
+		<script>
+			import { isAuthenticated } from "../game/net/ApiClient";
+
+			if (!isAuthenticated()) {
+				window.location.href = "/login";
+			}
+		</script>
+	</body>
+</html>

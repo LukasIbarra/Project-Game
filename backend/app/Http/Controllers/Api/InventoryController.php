@@ -31,14 +31,26 @@ class InventoryController extends Controller
         );
     }
 
-    // Fase 6: no existe todavía ningún sistema de obtención real (loot,
-    // crafting, recompensas) -llegan en F7/F8/F10-. Este endpoint es la
-    // única forma actual de que un personaje reciba un item, pensado para
-    // probar el flujo de inventario/equipamiento de esta fase; server-side
-    // sigue siendo la única autoridad (el cliente solo pide una `item_key`
-    // del catálogo, nunca decide cantidades ni ownership).
+    // Fase 6: herramienta de PRUEBA para el flujo de inventario/
+    // equipamiento -nunca fue un mecanismo de juego real-. Desde F7/F8/F10
+    // ya existen formas reales de conseguir items (loot de expedición,
+    // crafting, recompensas de combate), así que esto quedó obsoleto para
+    // gameplay real y, peor, expuesto vía HTTP le permitía a CUALQUIER
+    // usuario autenticado regalarse cualquier item del catálogo gratis
+    // (encontrado en la auditoría de la Fase Deploy — sección 10/13 de esa
+    // tarea lo pedía explícitamente). Se bloquea fuera de entornos locales
+    // en vez de borrarse: sigue sirviendo para pruebas manuales en
+    // desarrollo (`php artisan tinker` / `item:grant` cubren lo mismo sin
+    // pasar por HTTP, pero esto se deja también por compatibilidad con
+    // scripts de test existentes que sí corren en local).
     public function grant(GrantItemRequest $request)
     {
+        // 'testing' además de 'local' -PHPUnit corre con APP_ENV=testing
+        // (phpunit.xml) y InventoryTest ya cubre este endpoint por HTTP.
+        if (! app()->environment(['local', 'testing'])) {
+            return response()->json(['message' => 'No disponible.'], 403);
+        }
+
         $character = $request->user()->character;
 
         if (! $character) {

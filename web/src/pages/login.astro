@@ -1,0 +1,84 @@
+---
+// Fase 10.5.1: reemplaza el formulario HTML plano de Fase 1. Misma
+// arquitectura de auth de siempre (Sanctum, token en localStorage,
+// POST /api/v1/auth/login) -esto es presentación/UX, no un cambio de
+// backend (salvo los mensajes de validación en español, ver
+// AuthController). Panel tipo "ventana de RPG" sobre el mismo fondo
+// ambiental que la landing, a baja opacidad -mismo truco que ya usa
+// AppShell con fondo_05.png-, para que se sienta como el mismo mundo,
+// no una página aparte.
+import PublicLayout from "../layouts/PublicLayout.astro";
+import GamePanel from "../components/ui/GamePanel.astro";
+import GameInput from "../components/ui/GameInput.astro";
+---
+
+<PublicLayout title="Iniciar sesión — Adventure">
+	<main class="relative flex min-h-screen w-full items-center justify-center px-4 py-10">
+		<div
+			class="pointer-events-none fixed inset-0 bg-cover bg-center opacity-[0.14]"
+			style="background-image: url('/backgrounds/fondo_001.png'); image-rendering: pixelated;"
+			aria-hidden="true"
+		>
+		</div>
+		<div class="pointer-events-none fixed inset-0 bg-bg/70" aria-hidden="true"></div>
+
+		<div class="relative z-10 flex w-full max-w-sm flex-col gap-3">
+			<a href="/" class="self-start font-mono text-[0.65rem] uppercase tracking-wide text-muted transition-colors hover:text-cyan">
+				← Volver al mundo
+			</a>
+
+			<GamePanel notched bodyClass="flex flex-col gap-4 p-6">
+				<div class="text-center">
+					<h1 class="m-0 font-display text-sm text-cyan">INICIAR SESIÓN</h1>
+					<p class="m-0 mt-2 text-xs text-muted">Tu aventura te espera donde la dejaste.</p>
+				</div>
+
+				<p id="error-message" class="hidden border border-red px-3 py-2 text-center text-xs text-red"></p>
+
+				<form id="login-form" class="flex flex-col gap-3">
+					<GameInput label="Correo" name="email" type="email" autocomplete="email" />
+					<GameInput label="Contraseña" name="password" type="password" autocomplete="current-password" />
+
+					<button
+						type="submit"
+						id="submit-button"
+						class="mt-1 border-2 border-cyan bg-cyan px-4 py-2 font-display text-xs text-bg transition-transform hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						ENTRAR
+					</button>
+				</form>
+
+				<p class="m-0 text-center text-xs text-muted">
+					¿No tenés personaje? <a href="/register" class="text-pink hover:underline">Creá uno</a>
+				</p>
+			</GamePanel>
+		</div>
+	</main>
+
+	<script>
+		import { errorMessage, login } from "../game/net/ApiClient";
+
+		const form = document.getElementById("login-form") as HTMLFormElement;
+		const errorEl = document.getElementById("error-message")!;
+		const submitButton = document.getElementById("submit-button") as HTMLButtonElement;
+
+		form.addEventListener("submit", async (event) => {
+			event.preventDefault();
+			errorEl.classList.add("hidden");
+			submitButton.disabled = true;
+
+			const data = new FormData(form);
+			const email = String(data.get("email") ?? "");
+			const password = String(data.get("password") ?? "");
+
+			try {
+				await login(email, password);
+				window.location.href = "/home";
+			} catch (err) {
+				errorEl.textContent = errorMessage(err, "Ese correo o contraseña no coincide.");
+				errorEl.classList.remove("hidden");
+				submitButton.disabled = false;
+			}
+		});
+	</script>
+</PublicLayout>

@@ -1,0 +1,57 @@
+---
+// Fase 4.1B: navegación global. Sigue perteneciendo a Astro, nunca a
+// Phaser: son enlaces normales sin ningún acoplamiento al juego. "Mundo"
+// es el único módulo que hoy lleva a una vista con Phaser (/play); el
+// resto son placeholders hasta sus fases correspondientes. Los íconos
+// pasaron de emoji a la fuente central de Icon.astro (mismo lenguaje
+// visual en toda la app, reemplazable por pixel-art real sin tocar acá).
+import Icon, { type IconName } from "../ui/Icon.astro";
+
+const items: { href: string; label: string; icon: IconName }[] = [
+  { href: "/home", label: "Inicio", icon: "home" },
+  { href: "/house", label: "Casa", icon: "house" },
+  { href: "/pet", label: "Mascota", icon: "pet" },
+  { href: "/arena", label: "Arena", icon: "arena" },
+  { href: "/play", label: "Mundo", icon: "world" },
+  { href: "/social", label: "Social", icon: "social" },
+  { href: "/inventory", label: "Inventario", icon: "inventory" },
+  { href: "/crafting", label: "Crafting", icon: "craft" },
+  { href: "/ranking", label: "Ranking", icon: "ranking" },
+];
+
+const currentPath = Astro.url.pathname;
+---
+
+<nav class="game-panel m-2 mt-0 flex w-48 shrink-0 flex-col p-2">
+  <div class="px-2 pb-2 font-display text-[0.55rem] tracking-wide text-muted">MENÚ</div>
+
+  <div class="flex flex-col gap-1">
+    {
+      items.map((item) => {
+        const isActive = currentPath === item.href;
+        return (
+          <a
+            href={item.href}
+            aria-current={isActive ? "page" : undefined}
+            class={
+              isActive
+                ? "flex items-center gap-2.5 border-l-2 border-pink bg-surface-2 px-2 py-2 text-sm text-pink shadow-pixel-sm"
+                : "flex items-center gap-2.5 border-l-2 border-transparent px-2 py-2 text-sm text-muted hover:border-outline-strong hover:text-text"
+            }
+          >
+            <Icon name={item.icon} class="h-4 w-4 shrink-0" />
+            <span class="nav__label">{item.label}</span>
+          </a>
+        );
+      })
+    }
+  </div>
+</nav>
+
+<style>
+  @media (max-width: 720px) {
+    .nav__label {
+      display: none;
+    }
+  }
+</style>

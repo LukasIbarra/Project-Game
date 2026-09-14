@@ -15,10 +15,17 @@ class DatabaseSeeder extends Seeder
     {
         // User::factory(10)->create();
 
-        User::factory()->create([
-            'name' => 'Test User',
-            'email' => 'test@example.com',
-        ]);
+        // Fase Deploy, sección 13: una demo pública debe arrancar con
+        // catálogo (items/recetas/destinos/eventos) pero SIN personajes de
+        // prueba. Este usuario de desarrollo solo se crea fuera de
+        // producción -`php artisan db:seed --force` en Railway con
+        // APP_ENV=production lo salta solo-.
+        if (! app()->environment('production')) {
+            User::factory()->create([
+                'name' => 'Test User',
+                'email' => 'test@example.com',
+            ]);
+        }
 
         $this->call(ItemSeeder::class);
         $this->call(EconomyItemSeeder::class);

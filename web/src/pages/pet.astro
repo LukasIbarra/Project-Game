@@ -1,0 +1,491 @@
+---
+// Fase 7: primera UI real de Mascota / expediciones AFK. Mismo patrón que
+// /inventory (Fase 6): Astro/HTML puro sobre el sistema de paneles
+// existente + <script> de cliente contra ApiClient -Mascota está
+// clasificada como Astro/HTML en la tabla de módulos de la Fase 4, no
+// Phaser-. Reemplaza el PlaceholderView de esta ruta. No toca AppShell/
+// Hud/NavBar/GlobalChat: el layout de 3 columnas (nav | contenido | chat)
+// sigue intacto, solo cambia el <slot/> central.
+import AppShell from "../layouts/AppShell.astro";
+import GamePanel from "../components/ui/GamePanel.astro";
+---
+
+<AppShell title="Mascota">
+	<div class="mx-auto flex w-full max-w-4xl flex-col gap-4 py-4">
+		<p id="pet-error" class="hidden border border-red px-3 py-2 text-sm text-red"></p>
+
+		<div class="grid gap-4 sm:grid-cols-[220px_1fr]">
+			<GamePanel title="Mi mascota" bodyClass="flex flex-col items-center gap-3 p-5 text-center">
+				<img
+					src="/assets/pets/catsparin.png"
+					alt="Mascota"
+					class="h-24 w-24 object-contain"
+					style="image-rendering: pixelated;"
+				/>
+				<div>
+					<p id="pet-name" class="m-0 text-sm text-text">Cargando…</p>
+					<p id="pet-level" class="m-0 font-mono text-[0.65rem] uppercase tracking-wide text-muted"></p>
+				</div>
+				<div class="flex w-full flex-col gap-1">
+					<div class="flex items-center justify-between font-mono text-[0.6rem] uppercase tracking-wide text-muted">
+						<span>❤ Salud</span>
+						<span id="pet-health-label"></span>
+					</div>
+					<div class="h-[0.4rem] w-full border border-outline-strong bg-bg">
+						<div id="pet-health-bar" class="h-full bg-red" style="width:0%"></div>
+					</div>
+					<div class="mt-1 flex items-center justify-between font-mono text-[0.6rem] uppercase tracking-wide text-muted">
+						<span>⚡ Energía</span>
+						<span id="pet-energy-label"></span>
+					</div>
+					<div class="h-[0.4rem] w-full border border-outline-strong bg-bg">
+						<div id="pet-energy-bar" class="h-full bg-cyan" style="width:0%"></div>
+					</div>
+				</div>
+			</GamePanel>
+
+			<GamePanel title="Estado" bodyClass="p-5">
+				<div id="pet-status-idle" class="hidden flex-col gap-3">
+					<p class="m-0 text-sm text-muted">Tu mascota está descansando. Elegí un destino para explorar.</p>
+				</div>
+
+				<div id="pet-status-exploring" class="hidden flex-col gap-2">
+					<p class="m-0 text-sm text-text">
+						🐾 <span id="exploring-name"></span> está explorando <strong id="exploring-destination"></strong>
+					</p>
+					<div class="grid grid-cols-2 gap-2 text-xs text-muted sm:grid-cols-3">
+						<span>Inicio: <span id="exploring-started" class="text-text"></span></span>
+						<span>Regreso: <span id="exploring-finishes" class="text-text"></span></span>
+						<span>Restante: <span id="exploring-countdown" class="text-cyan"></span></span>
+					</div>
+				</div>
+
+				<div id="pet-status-completed" class="hidden flex-col gap-3">
+					<p class="m-0 text-sm text-text">
+						🐾 ¡Tu mascota regresó de <strong id="completed-destination"></strong>!
+					</p>
+					<div id="completed-events" class="flex flex-col gap-1 text-xs text-muted"></div>
+					<div>
+						<p class="m-0 mb-1 font-mono text-[0.65rem] uppercase tracking-wide text-muted">Recompensas</p>
+						<div id="completed-loot" class="flex flex-col gap-1 text-sm text-text"></div>
+					</div>
+					<button
+						id="claim-button"
+						type="button"
+						class="w-fit border-2 border-cyan px-4 py-2 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg"
+					>
+						Reclamar recompensas
+					</button>
+				</div>
+
+				<div id="narrative-section" class="hidden mt-3 flex-col gap-2 border-t border-outline-strong pt-3">
+					<p class="m-0 font-mono text-[0.65rem] uppercase tracking-wide text-cyan">📖 Bitácora de aventura</p>
+					<p id="narrative-empty" class="m-0 hidden text-sm italic text-muted">
+						La aventura acaba de comenzar.<br />Compañero todavía no tiene nada interesante que contar...
+					</p>
+					<div id="narrative-log" class="flex max-h-[260px] flex-col gap-3 overflow-y-auto pr-1"></div>
+				</div>
+			</GamePanel>
+		</div>
+
+		<GamePanel title="Destinos" bodyClass="grid gap-3 p-5 sm:grid-cols-3">
+			<div id="destinations-list" class="contents"></div>
+		</GamePanel>
+
+		<GamePanel title="Historial de expediciones" bodyClass="flex flex-col gap-2 p-5">
+			<div id="history-list" class="flex flex-col gap-2"></div>
+			<p id="history-empty" class="hidden text-sm text-muted">Todavía no completaste ninguna expedición.</p>
+		</GamePanel>
+	</div>
+</AppShell>
+
+<script>
+	import {
+		ApiError,
+		claimPetExpedition,
+		getItemCatalog,
+		getPet,
+		getPetDestinations,
+		getPetEvents,
+		startPetExpedition,
+		type ItemDto,
+		type Pet,
+	} from "../game/net/ApiClient";
+
+	const errorEl = document.getElementById("pet-error")!;
+	const nameEl = document.getElementById("pet-name")!;
+	const levelEl = document.getElementById("pet-level")!;
+	const healthBarEl = document.getElementById("pet-health-bar")!;
+	const healthLabelEl = document.getElementById("pet-health-label")!;
+	const energyBarEl = document.getElementById("pet-energy-bar")!;
+	const energyLabelEl = document.getElementById("pet-energy-label")!;
+
+	const statusIdleEl = document.getElementById("pet-status-idle")!;
+	const statusExploringEl = document.getElementById("pet-status-exploring")!;
+	const statusCompletedEl = document.getElementById("pet-status-completed")!;
+
+	const exploringNameEl = document.getElementById("exploring-name")!;
+	const exploringDestinationEl = document.getElementById("exploring-destination")!;
+	const exploringStartedEl = document.getElementById("exploring-started")!;
+	const exploringFinishesEl = document.getElementById("exploring-finishes")!;
+	const exploringCountdownEl = document.getElementById("exploring-countdown")!;
+
+	const completedDestinationEl = document.getElementById("completed-destination")!;
+	const completedEventsEl = document.getElementById("completed-events")!;
+	const completedLootEl = document.getElementById("completed-loot")!;
+	const claimButton = document.getElementById("claim-button") as HTMLButtonElement;
+
+	const destinationsListEl = document.getElementById("destinations-list")!;
+	const historyListEl = document.getElementById("history-list")!;
+	const historyEmptyEl = document.getElementById("history-empty")!;
+
+	const narrativeSectionEl = document.getElementById("narrative-section")!;
+	const narrativeEmptyEl = document.getElementById("narrative-empty")!;
+	const narrativeLogEl = document.getElementById("narrative-log")!;
+
+	let itemNames = new Map<string, string>();
+	let countdownTimer: ReturnType<typeof setInterval> | null = null;
+	let pollTimer: ReturnType<typeof setInterval> | null = null;
+
+	// F7.1.1: la bitácora se re-consulta entera en cada refresh() (GET
+	// /v1/pet sigue siendo la única fuente de verdad), pero el DOM se
+	// actualiza de forma incremental -solo se agregan las entradas nuevas,
+	// nunca se reconstruye la lista completa- para poder animar apenas la
+	// entrada que recién "ocurrió" y no todo el feed en cada poll.
+	// Clave de dedup = POSICIÓN en el log, no `event_id`: el mismo evento
+	// del catálogo puede repetirse más de una vez en una misma expedición
+	// (el anti-repetición solo evita las últimas 3 consecutivas, no
+	// unicidad global) — usar `event_id` como clave hacía que una
+	// repetición legítima nunca se mostrara, porque su id ya figuraba
+	// como "renderizado" por la aparición anterior.
+	let narrativeExpeditionId: number | null = null;
+	let renderedNarrativeCount = 0;
+
+	function showError(message: string): void {
+		errorEl.textContent = message;
+		errorEl.classList.remove("hidden");
+	}
+
+	function clearError(): void {
+		errorEl.classList.add("hidden");
+	}
+
+	function messageFrom(err: unknown, fallback: string): string {
+		if (err instanceof ApiError && err.body && typeof err.body === "object" && "message" in err.body) {
+			return String((err.body as { message: unknown }).message ?? fallback);
+		}
+		return fallback;
+	}
+
+	function itemLabel(itemKey: string): string {
+		return itemNames.get(itemKey) ?? itemKey;
+	}
+
+	function formatDuration(minutes: number): string {
+		const hours = minutes / 60;
+		return hours >= 1 && Number.isInteger(hours) ? `${hours} horas` : `${minutes} min`;
+	}
+
+	function stars(difficulty: number): string {
+		return "★".repeat(difficulty) + "☆".repeat(Math.max(0, 5 - difficulty));
+	}
+
+	function tierLabel(tier: string): string {
+		const labels: Record<string, string> = {
+			basic: "Básico",
+			rare: "Raro",
+			mythic: "Mítico",
+			legendary: "Legendario",
+		};
+		return labels[tier] ?? tier;
+	}
+
+	function formatCountdown(msRemaining: number): string {
+		const totalSeconds = Math.max(0, Math.floor(msRemaining / 1000));
+		const h = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
+		const m = String(Math.floor((totalSeconds % 3600) / 60)).padStart(2, "0");
+		const s = String(totalSeconds % 60).padStart(2, "0");
+		return `${h}:${m}:${s}`;
+	}
+
+	function stopCountdown(): void {
+		if (countdownTimer) {
+			clearInterval(countdownTimer);
+			countdownTimer = null;
+		}
+	}
+
+	// Guard contra refrescos superpuestos: el poll periódico (20s) puede
+	// disparar un refresh() mientras otro ya está en vuelo (por ejemplo,
+	// justo después de reclamar) y, si la respuesta más vieja llega
+	// después que la más nueva, pintaría datos desactualizados encima de
+	// los correctos. Un refresh que ve que ya hay otro en curso simplemente
+	// se reprograma en vez de correr en paralelo.
+	let refreshInFlight = false;
+	let refreshQueued = false;
+
+	async function refresh(): Promise<void> {
+		if (refreshInFlight) {
+			refreshQueued = true;
+			return;
+		}
+
+		refreshInFlight = true;
+		clearError();
+		stopCountdown();
+		try {
+			const pet = await getPet();
+			renderPet(pet);
+			await Promise.all([renderDestinations(pet), renderHistory()]);
+		} catch (err) {
+			showError(messageFrom(err, "No se pudo cargar la mascota. ¿El backend está corriendo?"));
+		} finally {
+			refreshInFlight = false;
+			if (refreshQueued) {
+				refreshQueued = false;
+				await refresh();
+			}
+		}
+	}
+
+	function renderPet(pet: Pet): void {
+		nameEl.textContent = pet.name;
+		levelEl.textContent = `Nv. ${pet.level}`;
+
+		healthBarEl.style.width = `${(pet.health / pet.max_health) * 100}%`;
+		healthLabelEl.textContent = `${pet.health} / ${pet.max_health}`;
+		energyBarEl.style.width = `${(pet.energy / pet.max_energy) * 100}%`;
+		energyLabelEl.textContent = `${pet.energy} / ${pet.max_energy}`;
+
+		statusIdleEl.classList.add("hidden");
+		statusExploringEl.classList.add("hidden");
+		statusCompletedEl.classList.add("hidden");
+		statusIdleEl.classList.remove("flex");
+		statusExploringEl.classList.remove("flex");
+		statusCompletedEl.classList.remove("flex");
+
+		const expedition = pet.expedition;
+
+		if (!expedition || expedition.status === "claimed") {
+			statusIdleEl.classList.remove("hidden");
+			statusIdleEl.classList.add("flex");
+			narrativeSectionEl.classList.add("hidden");
+			narrativeSectionEl.classList.remove("flex");
+			return;
+		}
+
+		renderNarrativeLog(expedition);
+
+		if (expedition.status === "active") {
+			statusExploringEl.classList.remove("hidden");
+			statusExploringEl.classList.add("flex");
+			exploringNameEl.textContent = pet.name;
+			exploringDestinationEl.textContent = expedition.destination_name;
+			exploringStartedEl.textContent = new Date(expedition.started_at).toLocaleTimeString();
+			exploringFinishesEl.textContent = new Date(expedition.finishes_at).toLocaleTimeString();
+
+			const finishesAt = new Date(expedition.finishes_at).getTime();
+			const tick = () => {
+				const remaining = finishesAt - Date.now();
+				if (remaining <= 0) {
+					stopCountdown();
+					refresh();
+					return;
+				}
+				exploringCountdownEl.textContent = formatCountdown(remaining);
+			};
+			tick();
+			countdownTimer = setInterval(tick, 1000);
+			return;
+		}
+
+		// completed, sin reclamar todavía.
+		statusCompletedEl.classList.remove("hidden");
+		statusCompletedEl.classList.add("flex");
+		completedDestinationEl.textContent = expedition.destination_name;
+
+		completedEventsEl.innerHTML = expedition.events.length
+			? expedition.events.map((event) => `<p class="m-0">• ${event.label}</p>`).join("")
+			: `<p class="m-0">Exploración tranquila, sin eventos.</p>`;
+
+		completedLootEl.innerHTML = expedition.loot
+			.map((reward) => `<span>${itemLabel(reward.item_key)} x${reward.quantity}</span>`)
+			.join("");
+	}
+
+	// F7.1: la bitácora ya viene "revelada" por el backend según el reloj
+	// del servidor -acá solo se pinta lo que llega, en orden cronológico
+	// (más antiguo primero, como un diario). Nada de esto afecta stats,
+	// loot ni tiempo: es puramente cosmético.
+	// Umbral para decidir si el jugador "estaba mirando el final" del feed
+	// -si es así, una entrada nueva hace auto-scroll; si estaba leyendo
+	// entradas viejas más arriba, no se le mueve la lectura-.
+	const NARRATIVE_AUTOSCROLL_THRESHOLD_PX = 40;
+
+	function renderNarrativeLog(expedition: NonNullable<Pet["expedition"]>): void {
+		// Visible siempre que haya una expedición activa o completada-sin-
+		// reclamar (sección 2/10 de F7.1.1) — incluso antes de que exista
+		// el primer evento.
+		narrativeSectionEl.classList.remove("hidden");
+		narrativeSectionEl.classList.add("flex");
+
+		// Expedición nueva (o la primera vez que se renderiza): arrancar la
+		// bitácora de cero en vez de arrastrar entradas de una anterior.
+		if (narrativeExpeditionId !== expedition.id) {
+			narrativeExpeditionId = expedition.id;
+			renderedNarrativeCount = 0;
+			narrativeLogEl.innerHTML = "";
+		}
+
+		const log = expedition.narrative_log ?? [];
+		narrativeEmptyEl.classList.toggle("hidden", log.length > 0);
+
+		const newEntries = log.slice(renderedNarrativeCount);
+		if (newEntries.length === 0) {
+			return;
+		}
+
+		const wasNearBottom =
+			narrativeLogEl.scrollHeight - narrativeLogEl.scrollTop - narrativeLogEl.clientHeight <
+			NARRATIVE_AUTOSCROLL_THRESHOLD_PX;
+
+		for (const entry of newEntries) {
+			renderedNarrativeCount++;
+
+			const time = new Date(entry.occurred_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+			const wrapper = document.createElement("div");
+			wrapper.className = "narrative-entry border-l-2 border-outline-strong pl-3";
+			wrapper.innerHTML = `
+				<span class="font-mono text-[0.6rem] uppercase tracking-wide text-muted">${time}</span>
+				<div class="text-sm text-text">${entry.text
+					.split("\n")
+					.map((line) => `<p class="m-0">${line}</p>`)
+					.join("")}</div>
+			`;
+			narrativeLogEl.appendChild(wrapper);
+		}
+
+		// Auto-scroll solo si el jugador ya estaba viendo el final del feed
+		// -si estaba leyendo entradas viejas más arriba, no se lo interrumpe-.
+		if (wasNearBottom) {
+			narrativeLogEl.scrollTop = narrativeLogEl.scrollHeight;
+		}
+	}
+
+	async function renderDestinations(pet: Pet): Promise<void> {
+		const destinations = await getPetDestinations();
+		const busy = pet.expedition && pet.expedition.status !== "claimed";
+
+		destinationsListEl.innerHTML = "";
+		for (const destination of destinations) {
+			const card = document.createElement("div");
+			card.className = "flex flex-col gap-2 border border-outline-strong p-3";
+			card.innerHTML = `
+				<span class="text-sm text-text">${destination.name}</span>
+				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Dificultad</span>
+				<span class="text-cyan">${stars(destination.difficulty)}</span>
+				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Loot</span>
+				<span class="text-sm text-text">${tierLabel(destination.loot_min_tier)} → ${tierLabel(destination.loot_max_tier)}</span>
+				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Tiempo</span>
+				<span class="text-sm text-text">${formatDuration(destination.duration_minutes)}</span>
+			`;
+
+			const button = document.createElement("button");
+			button.type = "button";
+			button.textContent = "Explorar";
+			button.className =
+				"border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+			button.disabled = Boolean(busy);
+			button.addEventListener("click", async () => {
+				button.disabled = true;
+				try {
+					await startPetExpedition(destination.key);
+					await refresh();
+				} catch (err) {
+					showError(messageFrom(err, "No se pudo iniciar la expedición."));
+					button.disabled = Boolean(busy);
+				}
+			});
+			card.appendChild(button);
+
+			destinationsListEl.appendChild(card);
+		}
+	}
+
+	async function renderHistory(): Promise<void> {
+		const history = await getPetEvents();
+		historyListEl.innerHTML = "";
+		historyEmptyEl.classList.toggle("hidden", history.length > 0);
+
+		for (const expedition of history) {
+			const row = document.createElement("div");
+			row.className = "border border-outline-strong px-3 py-2 text-sm";
+			const lootText = expedition.loot.map((r) => `+${r.quantity} ${itemLabel(r.item_key)}`).join(", ") || "Sin loot";
+			row.innerHTML = `
+				<div class="flex items-center justify-between">
+					<span class="text-text">${expedition.destination_name}</span>
+					<span class="font-mono text-[0.6rem] uppercase tracking-wide text-muted">${expedition.status === "claimed" ? "Reclamada" : "Completada"}</span>
+				</div>
+				<div class="text-xs text-muted">${lootText}</div>
+			`;
+			historyListEl.appendChild(row);
+		}
+	}
+
+	claimButton.addEventListener("click", async () => {
+		claimButton.disabled = true;
+		try {
+			await claimPetExpedition();
+			await refresh();
+		} catch (err) {
+			showError(messageFrom(err, "No se pudo reclamar la recompensa."));
+			claimButton.disabled = false;
+		}
+	});
+
+	async function init(): Promise<void> {
+		try {
+			const catalog = await getItemCatalog();
+			itemNames = new Map(catalog.map((item: ItemDto) => [item.key, item.name]));
+		} catch {
+			// Si el catálogo falla, se muestran las item_key crudas -no bloquea el resto de la página.
+		}
+		await refresh();
+	}
+
+	// Poll periódico: el backend es la fuente de verdad (CLAUDE.md #1), el
+	// countdown local es solo cosmético entre refrescos.
+	pollTimer = setInterval(refresh, 20000);
+	window.addEventListener("beforeunload", () => {
+		stopCountdown();
+		if (pollTimer) clearInterval(pollTimer);
+	});
+
+	init();
+</script>
+
+<style>
+	/* F7.1.1: animación sutil para una entrada nueva de la bitácora -nada
+	   de partículas ni efectos grandes, solo un fundido + pequeño
+	   desplazamiento, ver sección 6 de la fase-. */
+	.narrative-entry {
+		animation: narrative-entry-in 200ms ease-out;
+	}
+
+	@keyframes narrative-entry-in {
+		from {
+			opacity: 0;
+			transform: translateY(-4px);
+		}
+		to {
+			opacity: 1;
+			transform: translateY(0);
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.narrative-entry {
+			animation: none;
+		}
+	}
+</style>

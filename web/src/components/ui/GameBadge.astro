@@ -1,0 +1,21 @@
+---
+// Fase 4.1: etiqueta pequeña (hoy: nivel en el HUD, "Próximamente" en
+// placeholders). Reutilizable para cualquier badge corto futuro.
+interface Props {
+  text: string;
+  variant?: "muted" | "pink" | "cyan" | "red";
+}
+
+const { text, variant = "muted" } = Astro.props;
+
+const styles: Record<string, string> = {
+  muted: "text-muted border-outline-strong",
+  pink: "text-pink border-pink",
+  cyan: "text-cyan border-cyan",
+  red: "text-red border-red",
+};
+---
+
+<span class={`inline-block border px-2 py-0.5 font-mono text-[0.65rem] uppercase tracking-wide ${styles[variant]}`}>
+  {text}
+</span>

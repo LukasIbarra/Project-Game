@@ -1,0 +1,354 @@
+---
+// Fase 10: primera versión funcional de la Arena. La pantalla principal
+// (mi personaje / oponentes / ranking) es Astro+HTML, mismo patrón que
+// /pet y /crafting -listas + paneles pixel-art, sin Phaser-. El combate
+// en sí SÍ usa Phaser (GameView + BattleScene), igual que /house separa
+// "Phaser dibuja el mundo/sprites" de "Astro dibuja los paneles/overlay":
+// el log de texto del combate vive en HTML (mismo lenguaje visual que la
+// bitácora de F7.1), BattleScene solo emite un evento por paso.
+import AppShell from "../layouts/AppShell.astro";
+import GamePanel from "../components/ui/GamePanel.astro";
+import GameView from "../components/game/GameView.astro";
+---
+
+<AppShell title="Arena">
+	<div class="mx-auto flex w-full max-w-5xl flex-col gap-4 py-4">
+		<p id="arena-error" class="hidden border border-red px-3 py-2 text-sm text-red"></p>
+
+		<div id="arena-main" class="flex flex-col gap-4">
+			<div class="grid gap-4 sm:grid-cols-[260px_1fr]">
+				<GamePanel title="Mi personaje" bodyClass="flex flex-col gap-3 p-5">
+					<div>
+						<p id="char-name" class="m-0 text-sm text-text">Cargando…</p>
+						<p id="char-level" class="m-0 font-mono text-[0.65rem] uppercase tracking-wide text-muted"></p>
+					</div>
+
+					<div class="flex flex-col gap-1">
+						<div class="flex items-center justify-between font-mono text-[0.6rem] uppercase tracking-wide text-muted">
+							<span>XP</span>
+							<span id="char-exp-label"></span>
+						</div>
+						<div class="h-[0.4rem] w-full border border-outline-strong bg-bg">
+							<div id="char-exp-bar" class="h-full bg-cyan" style="width:0%"></div>
+						</div>
+					</div>
+
+					<div class="grid grid-cols-2 gap-x-2 gap-y-1 font-mono text-xs text-text">
+						<span>❤ HP</span><span id="stat-hp" class="text-right"></span>
+						<span>⚔ ATK</span><span id="stat-attack" class="text-right"></span>
+						<span>🛡 DEF</span><span id="stat-defense" class="text-right"></span>
+						<span>✨ Crít</span><span id="stat-crit" class="text-right"></span>
+						<span>💨 Esquiva</span><span id="stat-dodge" class="text-right"></span>
+					</div>
+
+					<div class="mt-1 flex items-center justify-between border-t border-outline-strong pt-2 font-mono text-xs text-text">
+						<span>💰 <span id="char-coins"></span></span>
+						<span id="char-record" class="text-muted"></span>
+					</div>
+					<p class="m-0 font-mono text-[0.65rem] uppercase tracking-wide text-cyan">Ranking #<span id="char-rank"></span></p>
+				</GamePanel>
+
+				<GamePanel title="Oponentes" bodyClass="grid gap-3 p-5 sm:grid-cols-2">
+					<div id="opponents-list" class="contents"></div>
+					<p id="opponents-empty" class="hidden text-sm text-muted">No hay otros jugadores todavía.</p>
+				</GamePanel>
+			</div>
+
+			<GamePanel title="Ranking" bodyClass="flex flex-col gap-1 p-5">
+				<div id="ranking-list" class="flex flex-col gap-1"></div>
+			</GamePanel>
+		</div>
+
+		<div id="arena-battle" class="hidden flex-col items-center gap-3">
+			<GameView title="Combate" containerId="battle-container">
+				<div class="pointer-events-none absolute inset-0 flex flex-col justify-end p-3">
+					<div class="pointer-events-auto ml-auto flex max-h-40 w-72 flex-col gap-1 overflow-y-auto border-2 border-outline-strong bg-bg/90 p-3">
+						<div id="battle-log" class="flex flex-col gap-1 font-mono text-xs text-text"></div>
+					</div>
+				</div>
+			</GameView>
+
+			<div id="battle-result" class="hidden w-full max-w-md flex-col items-center gap-2 border-2 border-outline-strong bg-bg p-5 text-center">
+				<p id="battle-result-title" class="m-0 font-display text-lg"></p>
+				<p id="battle-result-rewards" class="m-0 font-mono text-sm text-text"></p>
+				<p id="battle-result-levelup" class="m-0 hidden font-mono text-xs text-cyan"></p>
+				<button
+					id="battle-back-button"
+					type="button"
+					class="mt-2 border-2 border-cyan px-4 py-2 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg"
+				>
+					Volver a la Arena
+				</button>
+			</div>
+		</div>
+	</div>
+</AppShell>
+
+<script>
+	import { startGame } from "../game/main";
+	import {
+		attackCharacter,
+		errorMessage,
+		getArena,
+		type ArenaOpponentDto,
+		type ArenaStateDto,
+		type CombatEventDto,
+		type CombatLogDto,
+	} from "../game/net/ApiClient";
+	import type { BattleScene } from "../game/scenes/BattleScene";
+
+	const errorEl = document.getElementById("arena-error")!;
+	const mainViewEl = document.getElementById("arena-main")!;
+	const battleViewEl = document.getElementById("arena-battle")!;
+
+	const nameEl = document.getElementById("char-name")!;
+	const levelEl = document.getElementById("char-level")!;
+	const expBarEl = document.getElementById("char-exp-bar")!;
+	const expLabelEl = document.getElementById("char-exp-label")!;
+	const statHpEl = document.getElementById("stat-hp")!;
+	const statAttackEl = document.getElementById("stat-attack")!;
+	const statDefenseEl = document.getElementById("stat-defense")!;
+	const statCritEl = document.getElementById("stat-crit")!;
+	const statDodgeEl = document.getElementById("stat-dodge")!;
+	const coinsEl = document.getElementById("char-coins")!;
+	const recordEl = document.getElementById("char-record")!;
+	const rankEl = document.getElementById("char-rank")!;
+
+	const opponentsListEl = document.getElementById("opponents-list")!;
+	const opponentsEmptyEl = document.getElementById("opponents-empty")!;
+	const rankingListEl = document.getElementById("ranking-list")!;
+
+	const battleLogEl = document.getElementById("battle-log")!;
+	const battleResultEl = document.getElementById("battle-result")!;
+	const battleResultTitleEl = document.getElementById("battle-result-title")!;
+	const battleResultRewardsEl = document.getElementById("battle-result-rewards")!;
+	const battleResultLevelupEl = document.getElementById("battle-result-levelup")!;
+	const battleBackButton = document.getElementById("battle-back-button") as HTMLButtonElement;
+
+	let latestState: ArenaStateDto | null = null;
+	let cooldownTimer: ReturnType<typeof setInterval> | null = null;
+
+	function showError(message: string): void {
+		errorEl.textContent = message;
+		errorEl.classList.remove("hidden");
+	}
+	function clearError(): void {
+		errorEl.classList.add("hidden");
+	}
+
+	function formatCooldown(seconds: number): string {
+		const m = Math.floor(seconds / 60);
+		const s = seconds % 60;
+		return `${m}:${String(s).padStart(2, "0")}`;
+	}
+
+	function statsLine(stats: ArenaStateDto["character"]["stats"]): void {
+		statHpEl.textContent = String(stats.max_hp);
+		statAttackEl.textContent = String(stats.attack);
+		statDefenseEl.textContent = String(stats.defense);
+		statCritEl.textContent = `${stats.crit_chance}%`;
+		statDodgeEl.textContent = `${stats.dodge_chance}%`;
+	}
+
+	function renderCharacter(state: ArenaStateDto): void {
+		const c = state.character;
+		nameEl.textContent = c.name;
+		levelEl.textContent = `Nv. ${c.level}`;
+		expLabelEl.textContent = `${c.exp} / ${c.exp_to_next_level}`;
+		expBarEl.style.width = `${Math.min(100, (c.exp / c.exp_to_next_level) * 100)}%`;
+		statsLine(c.stats);
+		coinsEl.textContent = String(c.coins);
+		recordEl.textContent = `${c.wins}V - ${c.losses}D`;
+		rankEl.textContent = String(c.rank);
+	}
+
+	function renderOpponents(state: ArenaStateDto): void {
+		opponentsListEl.innerHTML = "";
+		opponentsEmptyEl.classList.toggle("hidden", state.opponents.length > 0);
+
+		for (const opponent of state.opponents) {
+			const card = document.createElement("div");
+			card.className = "flex flex-col gap-2 border border-outline-strong p-3";
+			card.innerHTML = `
+				<div class="flex items-center justify-between">
+					<span class="text-sm text-text">${opponent.name}</span>
+					<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Nv. ${opponent.level}</span>
+				</div>
+				<div class="font-mono text-[0.65rem] text-muted">${opponent.wins}V - ${opponent.losses}D</div>
+				<div class="grid grid-cols-3 gap-1 font-mono text-[0.65rem] text-text">
+					<span>❤${opponent.stats.max_hp}</span>
+					<span>⚔${opponent.stats.attack}</span>
+					<span>🛡${opponent.stats.defense}</span>
+				</div>
+			`;
+
+			const button = document.createElement("button");
+			button.type = "button";
+			button.className =
+				"border-2 border-red px-3 py-1 font-mono text-xs text-red transition-colors hover:bg-red hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-red";
+
+			const setButtonState = (cooldownSeconds: number) => {
+				if (cooldownSeconds > 0) {
+					button.disabled = true;
+					button.textContent = `Cooldown ${formatCooldown(cooldownSeconds)}`;
+				} else {
+					button.disabled = false;
+					button.textContent = "ATACAR";
+				}
+			};
+			setButtonState(opponent.cooldown_seconds);
+			button.dataset.cooldownUntil = String(Date.now() + opponent.cooldown_seconds * 1000);
+
+			button.addEventListener("click", () => startBattle(opponent));
+			card.appendChild(button);
+			opponentsListEl.appendChild(card);
+		}
+	}
+
+	function tickCooldowns(): void {
+		const now = Date.now();
+		for (const button of opponentsListEl.querySelectorAll<HTMLButtonElement>("button[data-cooldown-until]")) {
+			const until = Number(button.dataset.cooldownUntil ?? 0);
+			const remaining = Math.max(0, Math.round((until - now) / 1000));
+			if (remaining > 0) {
+				button.disabled = true;
+				button.textContent = `Cooldown ${formatCooldown(remaining)}`;
+			} else if (button.disabled && button.textContent?.startsWith("Cooldown")) {
+				button.disabled = false;
+				button.textContent = "ATACAR";
+			}
+		}
+	}
+
+	function renderRanking(state: ArenaStateDto): void {
+		rankingListEl.innerHTML = "";
+		state.ranking.forEach((entry, index) => {
+			const row = document.createElement("div");
+			const isMe = entry.character_id === state.character.id;
+			row.className = `flex items-center justify-between border border-outline-strong px-3 py-1.5 text-sm ${isMe ? "bg-cyan/10 text-cyan" : "text-text"}`;
+			row.innerHTML = `
+				<span>#${index + 1} ${entry.name} <span class="font-mono text-[0.65rem] text-muted">Nv.${entry.level}</span></span>
+				<span class="font-mono text-xs">${entry.wins}V - ${entry.losses}D</span>
+			`;
+			rankingListEl.appendChild(row);
+		});
+	}
+
+	async function refresh(): Promise<void> {
+		clearError();
+		try {
+			latestState = await getArena();
+			renderCharacter(latestState);
+			renderOpponents(latestState);
+			renderRanking(latestState);
+		} catch (err) {
+			showError(errorMessage(err, "No se pudo cargar la Arena."));
+		}
+	}
+
+	function roleName(role: "attacker" | "defender", log: CombatLogDto): string {
+		return role === "attacker" ? log.events_json.attacker.name : log.events_json.defender.name;
+	}
+
+	function appendLogLine(text: string): void {
+		const line = document.createElement("p");
+		line.className = "m-0";
+		line.textContent = text;
+		battleLogEl.appendChild(line);
+		battleLogEl.parentElement!.scrollTop = battleLogEl.parentElement!.scrollHeight;
+	}
+
+	function describeEvent(event: CombatEventDto, log: CombatLogDto): string {
+		if (event.type === "dodge") {
+			return `${roleName(event.actor, log)} esquiva el ataque.`;
+		}
+		const actorName = roleName(event.actor, log);
+		const targetName = roleName(event.target!, log);
+		if (event.critical) {
+			return `¡GOLPE CRÍTICO! ${actorName} causa ${event.damage} de daño a ${targetName}.`;
+		}
+		return `${actorName} ataca a ${targetName}: -${event.damage} HP.`;
+	}
+
+	async function startBattle(opponent: ArenaOpponentDto): Promise<void> {
+		if (!latestState) return;
+
+		let log: CombatLogDto;
+		try {
+			log = await attackCharacter(opponent.character_id);
+		} catch (err) {
+			showError(errorMessage(err, "No se pudo iniciar el combate."));
+			await refresh();
+			return;
+		}
+
+		clearError();
+		mainViewEl.classList.add("hidden");
+		battleViewEl.classList.remove("hidden");
+		battleViewEl.classList.add("flex");
+		battleResultEl.classList.add("hidden");
+		battleResultEl.classList.remove("flex");
+		battleLogEl.innerHTML = "";
+
+		const game = startGame("battle-container", "BattleScene", {
+			attacker: {
+				name: log.events_json.attacker.name,
+				level: log.events_json.attacker.level,
+				maxHp: log.events_json.attacker.stats.max_hp,
+				appearance: latestState.character.appearance_json,
+			},
+			defender: {
+				name: log.events_json.defender.name,
+				level: log.events_json.defender.level,
+				maxHp: log.events_json.defender.stats.max_hp,
+				appearance: opponent.appearance_json,
+			},
+			events: log.events_json.events,
+		});
+
+		const waitScene = setInterval(() => {
+			const scene = game.scene.getScene("BattleScene") as BattleScene | undefined;
+			if (!scene || !scene.scene.isActive()) return;
+			clearInterval(waitScene);
+
+			scene.events.on("combat-event", ({ event }: { event: CombatEventDto }) => {
+				appendLogLine(describeEvent(event, log));
+			});
+
+			scene.events.on("combat-finished", () => {
+				const won = log.events_json.winner === "attacker";
+				// El usuario que ve esta pantalla siempre es quien inició el
+				// ataque (solo el atacante puede llamar POST /arena/attack),
+				// así que su recompensa siempre es `rewards.attacker` -gane o
+				// pierda- nunca `rewards.defender`.
+				const reward = log.events_json.rewards.attacker;
+				battleResultTitleEl.textContent = won ? "VICTORIA" : "DERROTA";
+				battleResultTitleEl.className = `m-0 font-display text-lg ${won ? "text-cyan" : "text-red"}`;
+				battleResultRewardsEl.textContent = `+${reward.xp} XP    +${reward.coins} 💰`;
+				if (reward.leveled_up) {
+					battleResultLevelupEl.textContent = `¡Subiste a nivel ${reward.new_level}!`;
+					battleResultLevelupEl.classList.remove("hidden");
+				} else {
+					battleResultLevelupEl.classList.add("hidden");
+				}
+				battleResultEl.classList.remove("hidden");
+				battleResultEl.classList.add("flex");
+				battleResultEl.scrollIntoView({ behavior: "smooth", block: "center" });
+			});
+		}, 100);
+	}
+
+	battleBackButton.addEventListener("click", async () => {
+		battleViewEl.classList.add("hidden");
+		battleViewEl.classList.remove("flex");
+		mainViewEl.classList.remove("hidden");
+		await refresh();
+	});
+
+	cooldownTimer = setInterval(tickCooldowns, 1000);
+	window.addEventListener("beforeunload", () => {
+		if (cooldownTimer) clearInterval(cooldownTimer);
+	});
+
+	refresh();
+</script>

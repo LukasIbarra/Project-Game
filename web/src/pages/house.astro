@@ -1,0 +1,255 @@
+---
+// Room: habitación personal + muebles colocables, dentro de /house (el
+// módulo "Casa" ya usaba Phaser en la tabla de la Fase 4). Mismo patrón
+// que /play: AppShell + GameView le da a Phaser un contenedor DOM y
+// nada más -el modo edición vive en este mismo canvas/pantalla (sección
+// 9), como un overlay HTML sobre el canvas (GameView ganó un <slot/>
+// opcional para esto), nunca una ruta separada.
+import AppShell from "../layouts/AppShell.astro";
+import GameView from "../components/game/GameView.astro";
+---
+
+<AppShell title="Casa">
+	<GameView title="Casa" containerId="room-container">
+		<div class="pointer-events-none absolute inset-0 flex flex-col justify-end p-3">
+			<p id="room-error" class="pointer-events-auto hidden self-start border border-red bg-bg px-3 py-2 text-xs text-red"></p>
+
+			<div id="room-furniture-panel" class="pointer-events-auto hidden mb-2 max-h-52 w-64 flex-col gap-2 overflow-y-auto border-2 border-outline-strong bg-bg p-3">
+				<div class="flex items-center justify-between">
+					<span class="font-mono text-[0.65rem] uppercase tracking-wide text-cyan">Mis muebles</span>
+					<button id="room-furniture-close" type="button" class="font-mono text-xs text-muted hover:text-text">✕</button>
+				</div>
+				<div id="room-furniture-list" class="flex flex-col gap-1"></div>
+				<p id="room-furniture-empty" class="hidden text-xs text-muted">No tenés muebles todavía. Fabricalos en Crafting.</p>
+			</div>
+
+			<div id="room-selection-panel" class="pointer-events-auto hidden mb-2 w-fit flex-col gap-2 border-2 border-outline-strong bg-bg p-3">
+				<span id="room-selection-name" class="font-mono text-xs text-text"></span>
+				<div class="flex gap-2">
+					<button id="room-selection-move" type="button" class="border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan hover:bg-cyan hover:text-bg">Mover</button>
+					<button id="room-selection-remove" type="button" class="border-2 border-red px-3 py-1 font-mono text-xs text-red hover:bg-red hover:text-bg">Retirar</button>
+					<button id="room-selection-cancel" type="button" class="border-2 border-outline-strong px-3 py-1 font-mono text-xs text-muted hover:text-text">Cancelar</button>
+				</div>
+			</div>
+
+			<p id="room-ghost-hint" class="pointer-events-none hidden mb-2 self-start bg-bg px-2 py-1 font-mono text-[0.65rem] text-muted">
+				Clic para confirmar · ESC para cancelar
+			</p>
+
+			<div class="pointer-events-auto flex items-center gap-2">
+				<button
+					id="room-edit-toggle"
+					type="button"
+					class="border-2 border-cyan px-4 py-2 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg"
+				>
+					Editar habitación
+				</button>
+				<button id="room-open-furniture" type="button" class="hidden border-2 border-cyan px-4 py-2 font-mono text-xs text-cyan hover:bg-cyan hover:text-bg">
+					Muebles
+				</button>
+			</div>
+		</div>
+	</GameView>
+
+	<script>
+		import { startGame } from "../game/main";
+		import {
+			errorMessage,
+			getInventory,
+			getRoom,
+			moveRoomObject,
+			placeRoomObject,
+			removeRoomObject,
+			type InventoryItemDto,
+			type RoomObjectDto,
+		} from "../game/net/ApiClient";
+		import type { FurnitureMetadata } from "../game/room/RoomFurniture";
+		import type { RoomScene } from "../game/scenes/RoomScene";
+
+		const errorEl = document.getElementById("room-error")!;
+		const editToggleEl = document.getElementById("room-edit-toggle") as HTMLButtonElement;
+		const openFurnitureBtn = document.getElementById("room-open-furniture") as HTMLButtonElement;
+		const furniturePanelEl = document.getElementById("room-furniture-panel")!;
+		const furnitureListEl = document.getElementById("room-furniture-list")!;
+		const furnitureEmptyEl = document.getElementById("room-furniture-empty")!;
+		const furnitureCloseBtn = document.getElementById("room-furniture-close")!;
+		const selectionPanelEl = document.getElementById("room-selection-panel")!;
+		const selectionNameEl = document.getElementById("room-selection-name")!;
+		const selectionMoveBtn = document.getElementById("room-selection-move") as HTMLButtonElement;
+		const selectionRemoveBtn = document.getElementById("room-selection-remove") as HTMLButtonElement;
+		const selectionCancelBtn = document.getElementById("room-selection-cancel") as HTMLButtonElement;
+		const ghostHintEl = document.getElementById("room-ghost-hint")!;
+
+		let editing = false;
+		let selectedRoomObjectId: number | null = null;
+
+		function showError(message: string): void {
+			errorEl.textContent = message;
+			errorEl.classList.remove("hidden");
+		}
+		function clearError(): void {
+			errorEl.classList.add("hidden");
+		}
+
+		function closeSelectionPanel(): void {
+			selectionPanelEl.classList.add("hidden");
+			selectionPanelEl.classList.remove("flex");
+			selectedRoomObjectId = null;
+		}
+
+		function showGhostHint(show: boolean): void {
+			ghostHintEl.classList.toggle("hidden", !show);
+		}
+
+		const game = startGame("room-container", "RoomScene");
+
+		function getScene(): RoomScene | null {
+			const scene = game.scene.getScene("RoomScene") as RoomScene | undefined;
+			return scene && scene.scene.isActive() ? scene : null;
+		}
+
+		async function refreshRoom(): Promise<RoomObjectDto[]> {
+			const room = await getRoom();
+			getScene()?.refreshRoomObjects(room.objects);
+			return room.objects;
+		}
+
+		async function renderFurniturePanel(): Promise<void> {
+			const inventory = await getInventory();
+			const placeable = inventory.filter(
+				(row: InventoryItemDto) => row.item.metadata_json && (row.item.metadata_json as unknown as FurnitureMetadata).placeable
+			);
+
+			furnitureListEl.innerHTML = "";
+			furnitureEmptyEl.classList.toggle("hidden", placeable.length > 0);
+
+			for (const row of placeable) {
+				const item = document.createElement("div");
+				item.className = "flex items-center justify-between gap-2 text-sm text-text";
+				item.innerHTML = `
+					<span>${row.item.icon ?? ""} ${row.item.name} <span class="font-mono text-[0.6rem] text-muted">x${row.quantity}</span></span>
+				`;
+				const placeBtn = document.createElement("button");
+				placeBtn.type = "button";
+				placeBtn.textContent = "Colocar";
+				placeBtn.className = "border border-cyan px-2 py-0.5 font-mono text-[0.65rem] text-cyan hover:bg-cyan hover:text-bg";
+				placeBtn.addEventListener("click", () => {
+					const scene = getScene();
+					if (!scene || !row.item.metadata_json) return;
+					scene.startPlacing(row.item.key, row.item.metadata_json as unknown as FurnitureMetadata);
+					furniturePanelEl.classList.add("hidden");
+					furniturePanelEl.classList.remove("flex");
+					showGhostHint(true);
+				});
+				item.appendChild(placeBtn);
+				furnitureListEl.appendChild(item);
+			}
+		}
+
+		editToggleEl.addEventListener("click", () => {
+			editing = !editing;
+			getScene()?.setEditMode(editing);
+			editToggleEl.textContent = editing ? "Salir de edición" : "Editar habitación";
+			openFurnitureBtn.classList.toggle("hidden", !editing);
+			if (!editing) {
+				furniturePanelEl.classList.add("hidden");
+				closeSelectionPanel();
+				showGhostHint(false);
+			}
+		});
+
+		openFurnitureBtn.addEventListener("click", async () => {
+			closeSelectionPanel();
+			getScene()?.cancelGhost();
+			showGhostHint(false);
+			await renderFurniturePanel();
+			furniturePanelEl.classList.remove("hidden");
+			furniturePanelEl.classList.add("flex");
+		});
+
+		furnitureCloseBtn.addEventListener("click", () => {
+			furniturePanelEl.classList.add("hidden");
+			furniturePanelEl.classList.remove("flex");
+		});
+
+		selectionMoveBtn.addEventListener("click", () => {
+			if (selectedRoomObjectId === null) return;
+			getScene()?.startMoving(selectedRoomObjectId);
+			closeSelectionPanel();
+			showGhostHint(true);
+		});
+
+		selectionRemoveBtn.addEventListener("click", async () => {
+			if (selectedRoomObjectId === null) return;
+			try {
+				await removeRoomObject(selectedRoomObjectId);
+				await refreshRoom();
+				clearError();
+			} catch (err) {
+				showError(errorMessage(err, "No se pudo retirar el mueble."));
+			}
+			closeSelectionPanel();
+		});
+
+		selectionCancelBtn.addEventListener("click", () => closeSelectionPanel());
+
+		document.addEventListener("keydown", (e) => {
+			if (e.key === "Escape") showGhostHint(false);
+		});
+
+		async function init(): Promise<void> {
+			await refreshRoom();
+
+			// Los eventos del RoomScene tardan un tick en existir -esperamos a
+			// que la escena esté activa antes de suscribirnos-.
+			const waitScene = setInterval(() => {
+				const scene = getScene();
+				if (!scene) return;
+				clearInterval(waitScene);
+
+				scene.events.on("furniture-selected", ({ roomObjectId, itemKey }: { roomObjectId: number; itemKey: string }) => {
+					selectedRoomObjectId = roomObjectId;
+					selectionNameEl.textContent = itemKey;
+					selectionPanelEl.classList.remove("hidden");
+					selectionPanelEl.classList.add("flex");
+				});
+
+				scene.events.on("place-requested", async ({ itemKey, tileX, tileY }: { itemKey: string; tileX: number; tileY: number }) => {
+					showGhostHint(false);
+					try {
+						await placeRoomObject(itemKey, tileX, tileY);
+						// El sprite fantasma (tinte verde, alpha 0.6) es un
+						// GameObject aparte de `this.furniture` -si no se
+						// destruye acá, queda huérfano en la escena para
+						// siempre encima/debajo del mueble real recién creado
+						// por refreshRoom() (bug real, visto en Playwright:
+						// el mueble colocado se veía con un tinte verdoso
+						// permanente).
+						scene.cancelGhost();
+						await refreshRoom();
+						clearError();
+					} catch (err) {
+						showError(errorMessage(err, "No se pudo colocar el mueble ahí."));
+						scene.cancelGhost();
+					}
+				});
+
+				scene.events.on("move-requested", async ({ roomObjectId, tileX, tileY }: { roomObjectId: number; tileX: number; tileY: number }) => {
+					showGhostHint(false);
+					try {
+						await moveRoomObject(roomObjectId, tileX, tileY);
+						scene.cancelGhost();
+						await refreshRoom();
+						clearError();
+					} catch (err) {
+						showError(errorMessage(err, "No se pudo mover el mueble ahí."));
+						scene.cancelGhost();
+						await refreshRoom();
+					}
+				});
+			}, 100);
+		}
+
+		init();
+	</script>
+</AppShell>

@@ -1,0 +1,24 @@
+---
+// Fase 4: /play vive dentro del Application Shell (HUD + Nav ya vienen
+// del layout, con su propio guard de auth). Fase 4.1B: el marco visual
+// se movió a GameView.astro (frame + fondo ambiental), pero la
+// responsabilidad de esta página sigue siendo la misma de siempre:
+// entregarle a Phaser un contenedor DOM por id. No se tocó main.ts,
+// PreloadScene, CharacterRenderer ni el sistema de manifest.
+//
+// La imagen vive en public/backgrounds/fondo_1.png (no bajo
+// public/assets/backgrounds/ como se había planeado — se ajustó la ruta
+// a donde realmente está el archivo).
+import AppShell from "../layouts/AppShell.astro";
+import GameView from "../components/game/GameView.astro";
+---
+
+<AppShell title="Mundo">
+	<GameView title="Mundo"/>
+
+	<script>
+		import { startGame } from "../game/main";
+
+		startGame("game-container");
+	</script>
+</AppShell>

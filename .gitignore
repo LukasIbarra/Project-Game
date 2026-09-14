@@ -1,0 +1,25 @@
+# Backend (Laravel)
+backend/vendor/
+backend/.env
+backend/storage/*.key
+backend/bootstrap/cache/*.php
+backend/storage/logs/*
+backend/storage/framework/cache/*
+backend/storage/framework/sessions/*
+backend/storage/framework/views/*
+!backend/storage/framework/cache/.gitignore
+!backend/storage/framework/sessions/.gitignore
+!backend/storage/framework/views/.gitignore
+
+# Web/Game (Astro + Phaser)
+web/node_modules/
+web/dist/
+web/.astro/
+web/.env
+
+# General
+.DS_Store
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json

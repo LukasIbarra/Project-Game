@@ -1,0 +1,33 @@
+---
+// Fase 10.5.1: layout compartido para las páginas PRE-autenticación (`/`,
+// `/login`, `/register`) — mismo `theme.css`/fuente pixel que `AppShell`,
+// pero sin HUD/Nav/Chat/guard de auth (esas tres páginas son las únicas
+// que un visitante ve ANTES de tener sesión). Antes de esta fase cada una
+// armaba su propio `<html>` a mano con estilos inline -esto centraliza
+// ese boilerplate en un solo lugar, igual que `AppShell` lo hace para las
+// páginas autenticadas-.
+import "../styles/theme.css";
+
+interface Props {
+  title: string;
+}
+
+const { title } = Astro.props;
+---
+
+<html lang="es">
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>{title}</title>
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+			rel="stylesheet"
+		/>
+	</head>
+	<body class="bg-bg text-text">
+		<slot />
+	</body>
+</html>

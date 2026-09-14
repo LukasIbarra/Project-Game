@@ -1,0 +1,274 @@
+---
+// F8: primera UI real de Crafting. Mismo patrón que /inventory y /pet
+// (Astro/HTML + <script> de cliente contra ApiClient, sin Phaser). No
+// lleva estado del jugador en el catálogo (GET /v1/recipes es puro
+// catálogo, como /v1/pet/destinations en F7) — la disponibilidad de cada
+// receta se calcula acá cruzando ese catálogo con GET /v1/inventory ya
+// cargado, mismo criterio que pet.astro ya usa para destinos+mascota.
+import AppShell from "../layouts/AppShell.astro";
+import GamePanel from "../components/ui/GamePanel.astro";
+---
+
+<AppShell title="Crafting">
+	<div class="mx-auto flex w-full max-w-4xl flex-col gap-4 py-4">
+		<p id="crafting-error" class="hidden border border-red px-3 py-2 text-sm text-red"></p>
+
+		<GamePanel bodyClass="flex flex-col gap-3 p-5">
+			<div class="flex items-center justify-between">
+				<h1 class="m-0 font-display text-sm text-cyan">🛠️ CRAFTING</h1>
+				<span class="font-mono text-sm text-text">💰 <span id="crafting-coins">…</span></span>
+			</div>
+
+			<input
+				id="recipe-search"
+				type="text"
+				placeholder="🔍 Buscar receta..."
+				autocomplete="off"
+				class="border border-outline-strong bg-bg px-2 py-1.5 text-sm text-text placeholder:text-muted focus:border-cyan focus:outline-none"
+			/>
+
+			<div id="category-tabs" class="flex flex-wrap gap-2">
+				<button type="button" data-category="all" class="category-tab">Todas</button>
+				<button type="button" data-category="available" class="category-tab">Disponibles</button>
+				<button type="button" data-category="materials" class="category-tab">Materiales</button>
+				<button type="button" data-category="consumables" class="category-tab">Consumibles</button>
+				<button type="button" data-category="house" class="category-tab">Casa</button>
+				<button type="button" data-category="equipment" class="category-tab">Equipo</button>
+			</div>
+
+			<label class="flex items-center gap-2 text-sm text-muted">
+				<input id="only-available" type="checkbox" class="h-4 w-4 accent-cyan" />
+				Mostrar solo recetas disponibles
+			</label>
+		</GamePanel>
+
+		<GamePanel title="Recetas" bodyClass="flex flex-col gap-3 p-5">
+			<div id="recipe-list" class="flex flex-col gap-3"></div>
+			<p id="recipe-empty" class="hidden text-sm text-muted">No hay recetas que coincidan con el filtro.</p>
+		</GamePanel>
+	</div>
+</AppShell>
+
+<script>
+	import {
+		craftRecipe,
+		errorMessage,
+		getCharacter,
+		getInventory,
+		getRecipes,
+		type InventoryItemDto,
+		type RecipeDto,
+	} from "../game/net/ApiClient";
+
+	const errorEl = document.getElementById("crafting-error")!;
+	const coinsEl = document.getElementById("crafting-coins")!;
+	const searchEl = document.getElementById("recipe-search") as HTMLInputElement;
+	const onlyAvailableEl = document.getElementById("only-available") as HTMLInputElement;
+	const listEl = document.getElementById("recipe-list")!;
+	const emptyEl = document.getElementById("recipe-empty")!;
+	const tabButtons = Array.from(document.querySelectorAll<HTMLButtonElement>(".category-tab"));
+
+	const CATEGORY_LABELS: Record<string, string> = {
+		materials: "Materiales",
+		consumables: "Consumibles",
+		house: "Casa",
+		equipment: "Equipo",
+	};
+
+	const RARITY_LABELS: Record<string, string> = {
+		common: "Común",
+		uncommon: "Poco común",
+		rare: "Raro",
+		very_rare: "Muy raro",
+	};
+
+	let recipes: RecipeDto[] = [];
+	let ownedByKey = new Map<string, number>();
+	let characterLevel = 1;
+
+	let activeCategory = "all";
+	let onlyAvailable = false;
+
+	function showError(message: string): void {
+		errorEl.textContent = message;
+		errorEl.classList.remove("hidden");
+	}
+
+	function clearError(): void {
+		errorEl.classList.add("hidden");
+	}
+
+	function setActiveCategory(category: string): void {
+		activeCategory = category;
+		onlyAvailable = category === "available" || onlyAvailableEl.checked;
+		onlyAvailableEl.checked = onlyAvailable;
+
+		for (const btn of tabButtons) {
+			const isActive = btn.dataset.category === category;
+			btn.classList.toggle("category-tab--active", isActive);
+		}
+
+		renderList();
+	}
+
+	tabButtons.forEach((btn) => {
+		btn.addEventListener("click", () => setActiveCategory(btn.dataset.category!));
+	});
+
+	onlyAvailableEl.addEventListener("change", () => {
+		onlyAvailable = onlyAvailableEl.checked;
+		if (!onlyAvailable && activeCategory === "available") {
+			setActiveCategory("all");
+			return;
+		}
+		renderList();
+	});
+
+	searchEl.addEventListener("input", () => renderList());
+
+	function ownedOf(itemKey: string): number {
+		return ownedByKey.get(itemKey) ?? 0;
+	}
+
+	function canCraft(recipe: RecipeDto): boolean {
+		if (!recipe.is_active || recipe.unlock_condition) {
+			return false;
+		}
+		if (characterLevel < recipe.required_level) {
+			return false;
+		}
+		return recipe.ingredients.every((ingredient) => ownedOf(ingredient.item.key) >= ingredient.quantity);
+	}
+
+	function matchesFilters(recipe: RecipeDto): boolean {
+		const search = searchEl.value.trim().toLowerCase();
+		if (search && !recipe.name.toLowerCase().includes(search)) {
+			return false;
+		}
+		if (activeCategory !== "all" && activeCategory !== "available" && recipe.category !== activeCategory) {
+			return false;
+		}
+		if (onlyAvailable && !canCraft(recipe)) {
+			return false;
+		}
+		return true;
+	}
+
+	function renderList(): void {
+		const filtered = recipes.filter(matchesFilters);
+		emptyEl.classList.toggle("hidden", filtered.length > 0);
+		listEl.innerHTML = "";
+
+		for (const recipe of filtered) {
+			listEl.appendChild(renderRecipeCard(recipe));
+		}
+	}
+
+	function renderRecipeCard(recipe: RecipeDto): HTMLElement {
+		const available = canCraft(recipe);
+		const locked = recipe.unlock_condition || characterLevel < recipe.required_level;
+
+		const card = document.createElement("div");
+		card.className = "flex flex-col gap-2 border border-outline-strong p-3";
+
+		const header = document.createElement("div");
+		header.className = "flex items-center justify-between";
+		header.innerHTML = `
+			<div class="flex flex-col">
+				<span class="text-sm text-text">${recipe.result.icon ? recipe.result.icon + " " : ""}${recipe.name}</span>
+				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">
+					${CATEGORY_LABELS[recipe.category] ?? recipe.category} · ${RARITY_LABELS[recipe.rarity] ?? recipe.rarity}
+				</span>
+			</div>
+			<span class="font-mono text-[0.65rem] uppercase tracking-wide ${available ? "text-cyan" : "text-muted"}">
+				${locked ? "🔒 Bloqueada" : available ? "🟢 Puedes crear" : "Faltan materiales"}
+			</span>
+		`;
+		card.appendChild(header);
+
+		const ingredientsEl = document.createElement("div");
+		ingredientsEl.className = "flex flex-col gap-1";
+		for (const ingredient of recipe.ingredients) {
+			const owned = ownedOf(ingredient.item.key);
+			const enough = owned >= ingredient.quantity;
+			const row = document.createElement("div");
+			row.className = "flex items-center justify-between font-mono text-xs";
+			row.innerHTML = `
+				<span class="text-text">${ingredient.item.icon ? ingredient.item.icon + " " : ""}${ingredient.item.name}</span>
+				<span class="${enough ? "text-cyan" : "text-red"}">${owned} / ${ingredient.quantity} ${enough ? "✓" : "❌"}</span>
+			`;
+			ingredientsEl.appendChild(row);
+		}
+		card.appendChild(ingredientsEl);
+
+		const footer = document.createElement("div");
+		footer.className = "flex items-center justify-between";
+		footer.innerHTML = `<span class="font-mono text-xs text-muted">Produce: ${recipe.result.icon ?? ""} ${recipe.result.name} x${recipe.result_quantity}</span>`;
+
+		const craftBtn = document.createElement("button");
+		craftBtn.type = "button";
+		craftBtn.textContent = "Craftear";
+		craftBtn.className =
+			"border-2 border-cyan px-4 py-1.5 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+		craftBtn.disabled = !available;
+		craftBtn.addEventListener("click", async () => {
+			craftBtn.disabled = true;
+			try {
+				await craftRecipe(recipe.key);
+				await refresh();
+			} catch (err) {
+				showError(errorMessage(err, "No se pudo fabricar esta receta."));
+				craftBtn.disabled = !canCraft(recipe);
+			}
+		});
+		footer.appendChild(craftBtn);
+		card.appendChild(footer);
+
+		return card;
+	}
+
+	async function refresh(): Promise<void> {
+		clearError();
+		try {
+			const [recipeList, inventory, character] = await Promise.all([getRecipes(), getInventory(), getCharacter()]);
+
+			recipes = recipeList;
+			characterLevel = character.level;
+			coinsEl.textContent = character.coins.toLocaleString();
+
+			ownedByKey = new Map<string, number>();
+			for (const row of inventory as InventoryItemDto[]) {
+				ownedByKey.set(row.item.key, (ownedByKey.get(row.item.key) ?? 0) + row.quantity);
+			}
+
+			renderList();
+		} catch (err) {
+			showError(errorMessage(err, "No se pudo cargar el crafting. ¿El backend está corriendo?"));
+		}
+	}
+
+	setActiveCategory("all");
+	refresh();
+</script>
+
+<style>
+	.category-tab {
+		border: 1px solid var(--color-outline-strong);
+		background: transparent;
+		color: var(--color-muted);
+		padding: 0.35rem 0.75rem;
+		font-family: var(--font-mono, monospace);
+		font-size: 0.75rem;
+		cursor: pointer;
+	}
+
+	.category-tab:hover {
+		border-color: var(--color-cyan);
+		color: var(--color-text);
+	}
+
+	.category-tab--active {
+		border-color: var(--color-cyan);
+		color: var(--color-cyan);
+	}
+</style>

@@ -1,0 +1,109 @@
+---
+// Fase 4.1B: UI del chat global. Estructuralmente independiente para que
+// más adelante se pueda reemplazar la fuente de mensajes (mock -> API
+// real / polling / websocket) sin rehacer el componente: toda la lógica
+// de "cómo se obtienen los mensajes" vive en un solo lugar (ver script).
+//
+// IMPORTANTE: no hay backend de chat todavía. No hay fetch, no hay
+// WebSocket, no hay persistencia. Enviar un mensaje solo lo agrega a un
+// array en memoria de ESTE navegador -nadie más lo ve, se pierde al
+// recargar la página. Es una demo de la interfaz, no de la función.
+//
+// Es una columna acoplada al layout (como NavBar, pero a la derecha), no
+// un panel flotante -un `position: fixed` tapaba contenido de la página
+// en vez de compartir el espacio con el resto del Shell.
+import GameButton from "../ui/GameButton.astro";
+import Icon from "../ui/Icon.astro";
+---
+
+<section id="global-chat" class="game-panel game-panel--notched m-2 ml-0 flex w-64 shrink-0 flex-col">
+  <header class="game-panel__header text-cyan">
+    <span id="global-chat-title">Chat Global</span>
+    <button
+      id="global-chat-toggle"
+      aria-label="Minimizar chat"
+      class="ml-auto text-muted hover:text-text"
+    >
+      <Icon name="chevron-down" class="h-3.5 w-3.5" />
+    </button>
+  </header>
+
+  <div id="global-chat-body" class="flex flex-1 flex-col overflow-hidden">
+    <ul id="global-chat-messages" class="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2 text-xs">
+      <!-- Fase 4.1: mensajes mock, se completan en el script de abajo -->
+    </ul>
+
+    <form id="global-chat-form" class="flex gap-1 border-t border-outline-strong p-2">
+      <input
+        id="global-chat-input"
+        type="text"
+        maxlength="140"
+        autocomplete="off"
+        placeholder="Escribe un mensaje... (demo)"
+        class="min-w-0 flex-1 border border-outline-strong bg-bg px-2 py-1 text-xs text-text placeholder:text-muted focus:border-cyan focus:outline-none"
+      />
+      <GameButton type="submit" variant="outline" color="cyan">Enviar</GameButton>
+    </form>
+  </div>
+</section>
+
+<script>
+  // MOCK explícito: no existe backend de chat (ver CLAUDE.md Fase 4.1).
+  // Reemplazar esto por una fuente real más adelante no debería requerir
+  // tocar el markup de arriba, solo esta función de carga inicial.
+  interface MockChatMessage {
+    author: string;
+    text: string;
+  }
+
+  const MOCK_MESSAGES: MockChatMessage[] = [
+    { author: "Lukas", text: "hola" },
+    { author: "Alice", text: "alguien arena?" },
+    { author: "Kiro", text: "voy" },
+    { author: "Maki", text: "jajaja" },
+  ];
+
+  const container = document.getElementById("global-chat")!;
+  const list = document.getElementById("global-chat-messages")!;
+  const form = document.getElementById("global-chat-form") as HTMLFormElement;
+  const input = document.getElementById("global-chat-input") as HTMLInputElement;
+  const body = document.getElementById("global-chat-body")!;
+  const title = document.getElementById("global-chat-title")!;
+  const toggle = document.getElementById("global-chat-toggle")!;
+  const toggleIcon = toggle.querySelector("svg")!;
+
+  function renderMessage(message: MockChatMessage) {
+    const item = document.createElement("li");
+    item.className = "text-text";
+    const author = document.createElement("span");
+    author.className = "text-pink";
+    author.textContent = `${message.author}: `;
+    item.appendChild(author);
+    item.appendChild(document.createTextNode(message.text));
+    list.appendChild(item);
+    list.scrollTop = list.scrollHeight;
+  }
+
+  MOCK_MESSAGES.forEach(renderMessage);
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const text = input.value.trim();
+    if (!text) return;
+
+    // Demo local únicamente: no se envía a ningún servidor. El mensaje
+    // solo existe en el DOM de esta pestaña.
+    renderMessage({ author: "Tú", text });
+    input.value = "";
+  });
+
+  // Colapsa a un riel angosto (solo el header) en vez de ocultar sin
+  // liberar el espacio -así el contenido central puede usarlo.
+  toggle.addEventListener("click", () => {
+    const collapsed = container.classList.toggle("w-10");
+    container.classList.toggle("w-64", !collapsed);
+    body.classList.toggle("hidden", collapsed);
+    title.classList.toggle("hidden", collapsed);
+    toggleIcon.classList.toggle("-rotate-90", collapsed);
+  });
+</script>
