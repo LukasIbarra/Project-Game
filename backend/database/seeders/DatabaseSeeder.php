@@ -21,6 +21,11 @@ class DatabaseSeeder extends Seeder
         ]);
 
         $this->call(ItemSeeder::class);
+        $this->call(EconomyItemSeeder::class);
+        $this->call(RecipeSeeder::class);
+        $this->call(RoomFurnitureSeeder::class);
+        $this->call(ArenaEquipmentSeeder::class);
         $this->call(PetSeeder::class);
+        $this->call(PetNarrativeEventSeeder::class);
     }
 }

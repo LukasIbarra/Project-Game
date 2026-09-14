@@ -18,10 +18,25 @@ class AuthController extends Controller
 
     public function register(Request $request)
     {
+        // Fase 10.5.1, sección 11: la app entera está en español, pero los
+        // mensajes de validación por defecto de Laravel vienen en inglés
+        // (APP_LOCALE=en) -esto hacía que un simple "ese correo ya existe"
+        // se mostrara como "The email has already been taken.", rompiendo
+        // la identidad de la primera pantalla que ve un usuario nuevo-.
+        // Mensajes custom acá, contenidos a este controller: no se tocó el
+        // locale global ni ningún otro validador de la app.
         $data = $request->validate([
             'name' => ['required', 'string', 'max:255'],
             'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
             'password' => ['required', 'confirmed', Password::min(8)],
+        ], [
+            'name.required' => 'Elegí un nombre para tu personaje.',
+            'email.required' => 'Ingresá un correo.',
+            'email.email' => 'Ese correo no parece válido.',
+            'email.unique' => 'Ya existe una cuenta con ese correo.',
+            'password.required' => 'Elegí una contraseña.',
+            'password.confirmed' => 'Las contraseñas no coinciden.',
+            'password.min' => 'La contraseña necesita al menos 8 caracteres.',
         ]);
 
         $user = User::create([
@@ -55,13 +70,17 @@ class AuthController extends Controller
         $data = $request->validate([
             'email' => ['required', 'string', 'email'],
             'password' => ['required', 'string'],
+        ], [
+            'email.required' => 'Ingresá tu correo.',
+            'email.email' => 'Ese correo no parece válido.',
+            'password.required' => 'Ingresá tu contraseña.',
         ]);
 
         $user = User::where('email', $data['email'])->first();
 
         if (! $user || ! Hash::check($data['password'], $user->password)) {
             throw ValidationException::withMessages([
-                'email' => ['Las credenciales no coinciden con ningún registro.'],
+                'email' => ['Ese correo o contraseña no coincide.'],
             ]);
         }
 

@@ -2,8 +2,10 @@
 
 namespace App\Support;
 
+use App\Enums\PetExpeditionStatus;
 use App\Models\Pet;
 use App\Models\PetExpedition;
+use Illuminate\Support\Carbon;
 
 // Fase 7: PetController y PetExpeditionController devuelven la misma
 // forma de expedición -se centraliza acá en vez de duplicar el array en
@@ -41,6 +43,28 @@ class PetPresenter
             'resolved_at' => $expedition->resolved_at?->toIso8601String(),
             'events' => $expedition->result_data_json['events'] ?? [],
             'loot' => $expedition->result_data_json['loot'] ?? [],
+            'narrative_log' => self::visibleNarrativeLog($expedition),
         ];
+    }
+
+    // F7.1: la bitácora completa ya está decidida desde start() (ver
+    // PetExpeditionService::scheduleNarrativeLog) — "revelarla" es solo
+    // filtrar por lo que ya debería haber ocurrido según el reloj del
+    // servidor, nunca recalcular nada. Una expedición ya Completed/
+    // Claimed muestra la bitácora completa (todo "ya ocurrió").
+    private static function visibleNarrativeLog(PetExpedition $expedition): array
+    {
+        $log = $expedition->result_data_json['narrative_log'] ?? [];
+
+        if ($expedition->status !== PetExpeditionStatus::Active) {
+            return $log;
+        }
+
+        $now = now();
+
+        return array_values(array_filter(
+            $log,
+            fn (array $entry) => Carbon::parse($entry['occurred_at'])->lte($now)
+        ));
     }
 }

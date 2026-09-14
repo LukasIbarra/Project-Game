@@ -66,4 +66,52 @@ class InventoryGrantService
             $remaining -= $take;
         }
     }
+
+    // F8: total que un personaje posee de un item, sumado entre todas sus
+    // filas/instancias -para que EconomyService::sell y CraftingService
+    // puedan validar "¿alcanza?" antes de tocar nada.
+    public function totalOwned(Character $character, Item $item): int
+    {
+        return (int) InventoryItem::where('character_id', $character->id)
+            ->where('item_id', $item->id)
+            ->sum('quantity');
+    }
+
+    // F8: complemento de grant() -consume cantidad de un item desde las
+    // filas más viejas primero (mismo criterio que grantStackable),
+    // borrando la fila si llega a 0 en vez de dejarla en quantity=0. El
+    // caller (EconomyService/CraftingService) es responsable de llamar
+    // dentro de una transacción y de haber validado totalOwned() antes
+    // -acá se vuelve a bloquear con lockForUpdate() como red de
+    // seguridad contra una carrera entre el chequeo y el consumo real-.
+    public function consume(Character $character, Item $item, int $quantity): void
+    {
+        $remaining = $quantity;
+
+        $stacks = InventoryItem::where('character_id', $character->id)
+            ->where('item_id', $item->id)
+            ->orderBy('id')
+            ->lockForUpdate()
+            ->get();
+
+        foreach ($stacks as $stack) {
+            if ($remaining <= 0) {
+                break;
+            }
+
+            $take = min($stack->quantity, $remaining);
+            $remaining -= $take;
+
+            if ($take === $stack->quantity) {
+                $stack->delete();
+            } else {
+                $stack->quantity -= $take;
+                $stack->save();
+            }
+        }
+
+        if ($remaining > 0) {
+            throw new \RuntimeException("No hay suficiente '{$item->key}' en el inventario (faltan {$remaining}).");
+        }
+    }
 }

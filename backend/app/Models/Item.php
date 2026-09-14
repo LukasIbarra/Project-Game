@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ItemRarity;
 use App\Enums\ItemType;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
@@ -19,6 +20,9 @@ class Item extends Model
         'subtype',
         'stackable',
         'max_stack',
+        'sell_value',
+        'icon',
+        'rarity',
         'metadata_json',
     ];
 
@@ -27,6 +31,7 @@ class Item extends Model
         return [
             'type' => ItemType::class,
             'stackable' => 'boolean',
+            'rarity' => ItemRarity::class,
             'metadata_json' => 'array',
         ];
     }
@@ -39,5 +44,20 @@ class Item extends Model
     public function roomItems(): HasMany
     {
         return $this->hasMany(RoomItem::class);
+    }
+
+    public function recipeIngredients(): HasMany
+    {
+        return $this->hasMany(RecipeIngredient::class);
+    }
+
+    public function recipesProducing(): HasMany
+    {
+        return $this->hasMany(Recipe::class, 'result_item_id');
+    }
+
+    public function isSellable(): bool
+    {
+        return $this->sell_value > 0;
     }
 }

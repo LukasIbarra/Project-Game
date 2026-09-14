@@ -20,6 +20,7 @@ class Character extends Model
         'strength',
         'agility',
         'vitality',
+        'coins',
         'appearance_json',
     ];
 

@@ -28,33 +28,6 @@ class ItemSeeder extends Seeder
             ['key' => 'shoes_01', 'name' => 'Zapatos básicos', 'type' => ItemType::Cosmetic, 'subtype' => 'shoes'],
             ['key' => 'weapon_sword_basic', 'name' => 'Espada básica', 'type' => ItemType::Equipment, 'subtype' => 'weapon'],
             ['key' => 'accessory_ring_basic', 'name' => 'Anillo básico', 'type' => ItemType::Equipment, 'subtype' => 'accessory'],
-
-            // No equipable a propósito: sirve para probar stacking/grant
-            // y para verificar que el sistema de equipamiento rechaza
-            // items sin slot válido.
-            [
-                'key' => 'resource_wood',
-                'name' => 'Madera',
-                'type' => ItemType::Resource,
-                'subtype' => null,
-                'stackable' => true,
-                'max_stack' => 99,
-            ],
-
-            // Fase 7: loot de expediciones de mascota (ver PetSeeder,
-            // pet_destinations.loot_pool_json) — resource_wood de arriba
-            // se reutiliza para el Bosque, no se duplica.
-            ['key' => 'resource_herb', 'name' => 'Hierba', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
-            ['key' => 'resource_berry', 'name' => 'Baya', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
-            ['key' => 'resource_stone', 'name' => 'Piedra', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
-            ['key' => 'resource_iron_ore', 'name' => 'Mineral de hierro', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
-            ['key' => 'resource_coal', 'name' => 'Carbón', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
-            ['key' => 'resource_crystal', 'name' => 'Cristal', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
-            ['key' => 'resource_rare_ore', 'name' => 'Mineral raro', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
-            ['key' => 'resource_blood_crystal', 'name' => 'Cristal de sangre', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
-            ['key' => 'resource_ancient_fragment', 'name' => 'Fragmento antiguo', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
-            ['key' => 'resource_mythic_material', 'name' => 'Material mítico', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
-            ['key' => 'resource_legendary_fragment', 'name' => 'Fragmento legendario', 'type' => ItemType::Resource, 'stackable' => true, 'max_stack' => 99],
         ];
 
         foreach ($items as $item) {
@@ -68,6 +41,28 @@ class ItemSeeder extends Seeder
                     'max_stack' => $item['max_stack'] ?? 1,
                 ]
             );
+        }
+
+        // F8: los 12 recursos genéricos "resource_*" de F7 (madera/hierba/
+        // piedra/etc.) fueron reemplazados por las 16 materias primas
+        // "canónicas" de la economía real (ver EconomyItemSeeder +
+        // PetSeeder actualizado) — quedaban huérfanos y duplicaban el
+        // mismo concepto con distinta clave. Se borran acá en vez de
+        // dejarlos como basura en el catálogo; restrictOnDelete() los
+        // protege solos si alguna instancia real todavía los referencia.
+        $obsoleteKeys = [
+            'resource_wood', 'resource_herb', 'resource_berry', 'resource_stone',
+            'resource_iron_ore', 'resource_coal', 'resource_crystal', 'resource_rare_ore',
+            'resource_blood_crystal', 'resource_ancient_fragment', 'resource_mythic_material',
+            'resource_legendary_fragment',
+        ];
+
+        foreach ($obsoleteKeys as $key) {
+            try {
+                Item::where('key', $key)->delete();
+            } catch (\Illuminate\Database\QueryException $e) {
+                $this->command?->warn("No se pudo borrar el item obsoleto '{$key}' (todavía referenciado): {$e->getMessage()}");
+            }
         }
     }
 }
