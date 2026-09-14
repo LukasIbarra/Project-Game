@@ -1,17 +1,18 @@
 ---
-// Fase 4.1B: UI del chat global. Estructuralmente independiente para que
-// más adelante se pueda reemplazar la fuente de mensajes (mock -> API
-// real / polling / websocket) sin rehacer el componente: toda la lógica
-// de "cómo se obtienen los mensajes" vive en un solo lugar (ver script).
+// Chat global real (polling HTTP cada ~2.5s contra /api/v1/chat/messages
+// vía ApiClient — nunca fetch directo, ver ApiClient.ts). Reemplaza el
+// mock en memoria de la Fase 4.1B: ahora los mensajes se persisten en
+// `chat_messages` y los ve cualquiera conectado.
 //
-// IMPORTANTE: no hay backend de chat todavía. No hay fetch, no hay
-// WebSocket, no hay persistencia. Enviar un mensaje solo lo agrega a un
-// array en memoria de ESTE navegador -nadie más lo ve, se pierde al
-// recargar la página. Es una demo de la interfaz, no de la función.
-//
-// Es una columna acoplada al layout (como NavBar, pero a la derecha), no
-// un panel flotante -un `position: fixed` tapaba contenido de la página
-// en vez de compartir el espacio con el resto del Shell.
+// Diseño pensado para poder migrar a WebSockets después sin rehacer esto
+// (ver "Compatibilidad con multiplayer futuro" en el reporte de la
+// tarea): toda la lógica de "cómo llegan los mensajes nuevos" vive
+// aislada en `createPollingSource()`, con la forma {start, stop}. El
+// resto del componente (render, scroll, input) solo consume mensajes ya
+// resueltos vía el callback `onMessages` — no sabe ni le importa que hoy
+// vengan de polling. Reemplazar esa función por una que abra un
+// WebSocket y llame el mismo callback es el único cambio que haría
+// falta.
 import GameButton from "../ui/GameButton.astro";
 import Icon from "../ui/Icon.astro";
 ---
@@ -30,80 +31,198 @@ import Icon from "../ui/Icon.astro";
 
   <div id="global-chat-body" class="flex flex-1 flex-col overflow-hidden">
     <ul id="global-chat-messages" class="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2 text-xs">
-      <!-- Fase 4.1: mensajes mock, se completan en el script de abajo -->
+      <!-- Se completa en runtime desde /api/v1/chat/messages -->
     </ul>
+
+    <p id="global-chat-status" class="hidden px-3 pb-1 text-[10px] text-muted"></p>
 
     <form id="global-chat-form" class="flex gap-1 border-t border-outline-strong p-2">
       <input
         id="global-chat-input"
         type="text"
-        maxlength="140"
+        maxlength="150"
         autocomplete="off"
-        placeholder="Escribe un mensaje... (demo)"
+        placeholder="Escribe un mensaje..."
         class="min-w-0 flex-1 border border-outline-strong bg-bg px-2 py-1 text-xs text-text placeholder:text-muted focus:border-cyan focus:outline-none"
       />
-      <GameButton type="submit" variant="outline" color="cyan">Enviar</GameButton>
+      <GameButton type="submit" variant="outline" color="cyan" id="global-chat-send">Enviar</GameButton>
     </form>
   </div>
 </section>
 
 <script>
-  // MOCK explícito: no existe backend de chat (ver CLAUDE.md Fase 4.1).
-  // Reemplazar esto por una fuente real más adelante no debería requerir
-  // tocar el markup de arriba, solo esta función de carga inicial.
-  interface MockChatMessage {
-    author: string;
-    text: string;
-  }
+  import {
+    errorMessage,
+    getChatMessages,
+    sendChatMessage,
+    type ChatMessageDto,
+  } from "../../game/net/ApiClient";
 
-  const MOCK_MESSAGES: MockChatMessage[] = [
-    { author: "Lukas", text: "hola" },
-    { author: "Alice", text: "alguien arena?" },
-    { author: "Kiro", text: "voy" },
-    { author: "Maki", text: "jajaja" },
-  ];
+  const POLL_INTERVAL_MS = 2500;
+  const NEAR_BOTTOM_PX = 24;
 
   const container = document.getElementById("global-chat")!;
-  const list = document.getElementById("global-chat-messages")!;
-  const form = document.getElementById("global-chat-form") as HTMLFormElement;
-  const input = document.getElementById("global-chat-input") as HTMLInputElement;
-  const body = document.getElementById("global-chat-body")!;
-  const title = document.getElementById("global-chat-title")!;
-  const toggle = document.getElementById("global-chat-toggle")!;
-  const toggleIcon = toggle.querySelector("svg")!;
 
-  function renderMessage(message: MockChatMessage) {
-    const item = document.createElement("li");
-    item.className = "text-text";
-    const author = document.createElement("span");
-    author.className = "text-pink";
-    author.textContent = `${message.author}: `;
-    item.appendChild(author);
-    item.appendChild(document.createTextNode(message.text));
-    list.appendChild(item);
-    list.scrollTop = list.scrollHeight;
+  // Guard contra doble-inicialización: si este script llegara a correr
+  // dos veces sobre el mismo DOM (ej. una futura navegación client-side),
+  // nunca queremos dos intervalos de polling compitiendo.
+  if (container.dataset.chatInitialized === "true") {
+    // no-op: ya inicializado
+  } else {
+    container.dataset.chatInitialized = "true";
+    initGlobalChat(container);
   }
 
-  MOCK_MESSAGES.forEach(renderMessage);
+  function initGlobalChat(container: HTMLElement) {
+    const list = document.getElementById("global-chat-messages")!;
+    const form = document.getElementById("global-chat-form") as HTMLFormElement;
+    const input = document.getElementById("global-chat-input") as HTMLInputElement;
+    const sendButton = document.getElementById("global-chat-send") as HTMLButtonElement;
+    const status = document.getElementById("global-chat-status")!;
+    const body = document.getElementById("global-chat-body")!;
+    const title = document.getElementById("global-chat-title")!;
+    const toggle = document.getElementById("global-chat-toggle")!;
+    const toggleIcon = toggle.querySelector("svg")!;
 
-  form.addEventListener("submit", (event) => {
-    event.preventDefault();
-    const text = input.value.trim();
-    if (!text) return;
+    const renderedIds = new Set<number>();
 
-    // Demo local únicamente: no se envía a ningún servidor. El mensaje
-    // solo existe en el DOM de esta pestaña.
-    renderMessage({ author: "Tú", text });
-    input.value = "";
-  });
+    function formatTime(iso: string): string {
+      return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    }
 
-  // Colapsa a un riel angosto (solo el header) en vez de ocultar sin
-  // liberar el espacio -así el contenido central puede usarlo.
-  toggle.addEventListener("click", () => {
-    const collapsed = container.classList.toggle("w-10");
-    container.classList.toggle("w-64", !collapsed);
-    body.classList.toggle("hidden", collapsed);
-    title.classList.toggle("hidden", collapsed);
-    toggleIcon.classList.toggle("-rotate-90", collapsed);
-  });
+    function isNearBottom(): boolean {
+      return list.scrollTop + list.clientHeight >= list.scrollHeight - NEAR_BOTTOM_PX;
+    }
+
+    function renderMessage(message: ChatMessageDto) {
+      if (renderedIds.has(message.id)) return;
+      renderedIds.add(message.id);
+
+      const item = document.createElement("li");
+      item.className = "text-text";
+
+      const author = document.createElement("span");
+      author.className = "text-pink";
+      author.textContent = `${message.user_name}: `;
+      item.appendChild(author);
+
+      // Texto plano vía createTextNode/textContent, NUNCA innerHTML — es
+      // lo único que hace falta para que el contenido del mensaje no
+      // pueda inyectar HTML/JS (el backend no sanitiza el texto en sí,
+      // la defensa contra XSS vive acá, en cómo se pinta).
+      item.appendChild(document.createTextNode(message.message));
+
+      const time = document.createElement("span");
+      time.className = "ml-1 text-[10px] text-muted";
+      time.textContent = formatTime(message.created_at);
+      item.appendChild(time);
+
+      list.appendChild(item);
+    }
+
+    function renderIncoming(messages: ChatMessageDto[]) {
+      if (messages.length === 0) return;
+      const stickToBottom = renderedIds.size === 0 || isNearBottom();
+      messages.forEach(renderMessage);
+      if (stickToBottom) {
+        list.scrollTop = list.scrollHeight;
+      }
+    }
+
+    function setStatus(text: string | null) {
+      if (!text) {
+        status.classList.add("hidden");
+        status.textContent = "";
+        return;
+      }
+      status.textContent = text;
+      status.classList.remove("hidden");
+    }
+
+    // Fuente de mensajes vía polling — ver comentario de arriba del
+    // archivo. `after_id` evita re-descargar todo el feed en cada tick.
+    function createPollingSource(onMessages: (messages: ChatMessageDto[]) => void) {
+      let lastId = 0;
+      let timer: ReturnType<typeof setInterval> | null = null;
+      let stopped = false;
+
+      async function tick() {
+        if (stopped) return;
+        try {
+          const messages = await getChatMessages(lastId || undefined);
+          if (messages.length > 0) {
+            lastId = Math.max(lastId, ...messages.map((m) => m.id));
+            onMessages(messages);
+          }
+          setStatus(null);
+        } catch (err) {
+          setStatus(errorMessage(err, "No se pudo actualizar el chat."));
+        }
+      }
+
+      return {
+        async start() {
+          setStatus("Cargando mensajes...");
+          await tick();
+          if (!stopped) {
+            timer = setInterval(tick, POLL_INTERVAL_MS);
+          }
+        },
+        stop() {
+          stopped = true;
+          if (timer !== null) {
+            clearInterval(timer);
+            timer = null;
+          }
+        },
+        // Deja que un mensaje enviado por ESTE cliente entre por el mismo
+        // camino que uno recibido por polling (mismo dedup, mismo
+        // render), y adelanta el cursor para que el próximo tick no lo
+        // vuelva a traer.
+        notifyLocalMessage(message: ChatMessageDto) {
+          lastId = Math.max(lastId, message.id);
+          onMessages([message]);
+        },
+      };
+    }
+
+    const source = createPollingSource(renderIncoming);
+    source.start();
+
+    // No hace falta un event listener de "destrucción" explícito en un
+    // sitio multi-page (cada navegación recarga el documento y mata el
+    // intervalo solo) — esto es una red de seguridad barata para el caso
+    // de bfcache/pagehide, sin asumir ningún router client-side.
+    window.addEventListener("pagehide", () => source.stop());
+
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const text = input.value.trim();
+      if (!text || text.length > 150) return;
+
+      input.value = "";
+      sendButton.disabled = true;
+      try {
+        const sent = await sendChatMessage(text);
+        source.notifyLocalMessage(sent);
+        list.scrollTop = list.scrollHeight;
+        setStatus(null);
+      } catch (err) {
+        input.value = text; // el usuario no pierde lo que escribió
+        setStatus(errorMessage(err, "No se pudo enviar el mensaje."));
+      } finally {
+        sendButton.disabled = false;
+      }
+    });
+
+    // Colapsa a un riel angosto (solo el header) en vez de ocultar sin
+    // liberar el espacio -así el contenido central puede usarlo.
+    toggle.addEventListener("click", () => {
+      const collapsed = container.classList.toggle("w-10");
+      container.classList.toggle("w-64", !collapsed);
+      body.classList.toggle("hidden", collapsed);
+      title.classList.toggle("hidden", collapsed);
+      toggleIcon.classList.toggle("-rotate-90", collapsed);
+    });
+  }
 </script>

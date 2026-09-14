@@ -541,3 +541,25 @@ export async function attackCharacter(defenderCharacterId: number): Promise<Comb
 export async function getCombatLog(combatId: number): Promise<CombatLogDto> {
   return request(`/api/v1/arena/combats/${combatId}`);
 }
+
+// Chat global (demo, polling HTTP -ver GlobalChat.astro-). El backend
+// SIEMPRE deriva el autor del token Sanctum -estas funciones nunca mandan
+// un nombre de usuario, el servidor no lo aceptaría de todos modos.
+export interface ChatMessageDto {
+  id: number;
+  user_name: string;
+  message: string;
+  created_at: string;
+}
+
+export async function getChatMessages(afterId?: number): Promise<ChatMessageDto[]> {
+  const query = afterId ? `?after_id=${afterId}` : "";
+  return request(`/api/v1/chat/messages${query}`);
+}
+
+export async function sendChatMessage(message: string): Promise<ChatMessageDto> {
+  return request("/api/v1/chat/messages", {
+    method: "POST",
+    body: JSON.stringify({ message }),
+  });
+}

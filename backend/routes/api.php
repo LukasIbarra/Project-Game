@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\ArenaAttackController;
 use App\Http\Controllers\Api\ArenaController;
+use App\Http\Controllers\Api\ChatController;
 use App\Http\Controllers\Api\CharacterController;
 use App\Http\Controllers\Api\CraftingController;
 use App\Http\Controllers\Api\EquipmentController;
@@ -86,4 +87,15 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get('/arena', [ArenaController::class, 'index']);
     Route::get('/arena/combats/{combatLog}', [ArenaController::class, 'show']);
     Route::post('/arena/attack', [ArenaAttackController::class, 'attack']);
+
+    // Chat global (demo, polling HTTP) -mismo principio que el resto: el
+    // usuario que aparece en cada mensaje siempre es el autenticado por
+    // Sanctum, nunca uno que mande el cliente. GET ya cae bajo el limiter
+    // global "api" (60/min, bootstrap/app.php); POST suma un throttle
+    // propio más estricto -mismo patrón que /auth/register|login- porque
+    // es el endpoint que un cliente hostil podría usar para spamear.
+    Route::get('/chat/messages', [ChatController::class, 'index']);
+    Route::middleware('throttle:20,1')->group(function () {
+        Route::post('/chat/messages', [ChatController::class, 'store']);
+    });
 });
