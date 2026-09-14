@@ -12,6 +12,16 @@ class Character extends Model
 {
     use HasFactory;
 
+    // Render+Neon: default de `appearance_json` movido acá desde la
+    // migración (antes usaba `JSON_OBJECT('body', 'base')`, específico de
+    // MySQL/MariaDB — no existe con esa firma en PostgreSQL). `$attributes`
+    // guarda el valor CRUDO (sin castear) que tendría la columna, igual
+    // que Eloquent ya lo espera -el cast 'array' de abajo se aplica al
+    // leer/escribir, no acá-. Portable a cualquier motor, sin SQL crudo.
+    protected $attributes = [
+        'appearance_json' => '{"body":"base"}',
+    ];
+
     protected $fillable = [
         'user_id',
         'name',

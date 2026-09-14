@@ -26,9 +26,17 @@ return new class extends Migration
             // composición completa de capas, nunca se filtra/ordena por
             // sus claves. Default = personaje base sin nada equipado,
             // igual al DEFAULT_APPEARANCE del frontend (Player.ts, Fase 3).
-            $table->json('appearance_json')->default(new \Illuminate\Database\Query\Expression(
-                "(JSON_OBJECT('body', 'base'))"
-            ));
+            //
+            // Render+Neon: el default ANTES vivía acá como
+            // `JSON_OBJECT('body', 'base')` -función específica de MySQL/
+            // MariaDB, PostgreSQL no la tiene con esa firma-. Se movió al
+            // modelo Eloquent (Character::$attributes), que es portable a
+            // cualquier motor y no depende de SQL crudo -ver
+            // docs/RENDER_DEPLOYMENT_ANALYSIS.md-. La columna sigue
+            // NOT NULL (nunca hubo default nullable): todo alta de
+            // Character pasa por Eloquent, que ya completa este atributo
+            // antes del INSERT.
+            $table->json('appearance_json');
 
             $table->timestamps();
         });

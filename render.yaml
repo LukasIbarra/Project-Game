@@ -1,0 +1,77 @@
+# Render Blueprint — despliegue del backend (backend/) como servicio Docker.
+# Ver docs/RENDER_DEPLOYMENT_ANALYSIS.md para el contexto completo.
+#
+# Esto es un PUNTO DE PARTIDA reproducible (Render → New → Blueprint,
+# apuntando a este repo). Los valores marcados `sync: false` son secretos/
+# específicos del entorno: Render los deja vacíos y hay que completarlos a
+# mano en el dashboard después de crear el servicio — nunca van acá.
+#
+# web/ (Astro/Phaser) NO se declara acá: se despliega aparte, en Vercel.
+
+services:
+  - type: web
+    name: game-backend
+    runtime: docker
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /up
+
+    # Corre UNA vez por cada deploy real, antes de que el nuevo código
+    # reciba tráfico -nunca en cada arranque/restart del contenedor, eso
+    # vive en docker/entrypoint.sh y NO incluye migraciones a propósito-.
+    preDeployCommand: php artisan migrate --force
+
+    envVars:
+      - key: APP_NAME
+        value: GameBackend
+      - key: APP_ENV
+        value: production
+      - key: APP_DEBUG
+        value: "false"
+      - key: APP_TIMEZONE
+        value: UTC
+      - key: APP_LOCALE
+        value: en
+
+      # Secreto real — generar con `php artisan key:generate --show` y
+      # pegarlo a mano en Render. Nunca commitear el valor real.
+      - key: APP_KEY
+        sync: false
+
+      # El dominio que Render asigne a este servicio (o uno propio).
+      - key: APP_URL
+        sync: false
+
+      - key: DB_CONNECTION
+        value: pgsql
+      # Connection string completa que da Neon (postgres://user:pass@host/db).
+      # config/database.php ya soporta DB_URL de forma nativa.
+      - key: DB_URL
+        sync: false
+
+      - key: SESSION_DRIVER
+        value: database
+      - key: CACHE_STORE
+        value: database
+      - key: QUEUE_CONNECTION
+        value: database
+
+      # Dominio(s) reales de Vercel, separados por coma si hace falta más
+      # de uno (preview + producción) — ver config/cors.php.
+      - key: FRONTEND_URL
+        sync: false
+
+      # Sin efecto real en esta arquitectura (auth es 100% Bearer token,
+      # nunca cookies — ver docs/RENDER_DEPLOYMENT_ANALYSIS.md /
+      # DEPLOYMENT.md). Se dejan con su default de Laravel.
+      - key: SANCTUM_STATEFUL_DOMAINS
+        value: localhost:4321
+      - key: SESSION_DOMAIN
+        value: "null"
+
+      # Para que los logs aparezcan en el visor de Render en vez de quedar
+      # solo en storage/logs/ (efímero entre deploys, sin disco persistente).
+      - key: LOG_CHANNEL
+        value: stderr
