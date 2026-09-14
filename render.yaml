@@ -18,9 +18,15 @@ services:
     plan: free
     healthCheckPath: /up
 
-    # Corre UNA vez por cada deploy real, antes de que el nuevo código
-    # reciba tráfico -nunca en cada arranque/restart del contenedor, eso
-    # vive en docker/entrypoint.sh y NO incluye migraciones a propósito-.
+    # Render Free no ofrece Pre-Deploy Command ni shell/SSH ni one-off
+    # jobs -no hay forma de correr `php artisan migrate --force` por
+    # fuera del arranque del contenedor en este plan-. Las migraciones
+    # corren dentro de `docker/entrypoint.sh`, antes de levantar Apache,
+    # en cada arranque (deploy y restart) — son idempotentes, así que un
+    # restart sin migraciones nuevas es un no-op. Ver el propio
+    # entrypoint.sh y docs/RENDER_DEPLOYMENT_ANALYSIS.md para el detalle
+    # completo, incluido el trade-off aceptado de correrlas en cada
+    # arranque en vez de una sola vez por deploy.
 
     envVars:
       - key: APP_NAME
