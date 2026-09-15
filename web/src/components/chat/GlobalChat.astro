@@ -17,8 +17,8 @@ import GameButton from "../ui/GameButton.astro";
 import Icon from "../ui/Icon.astro";
 ---
 
-<section id="global-chat" class="game-panel game-panel--notched m-2 ml-0 flex w-64 shrink-0 flex-col">
-  <header class="game-panel__header text-cyan">
+<section id="global-chat" class="game-panel game-panel--notched m-2 ml-0 flex w-64 shrink-0 flex-col min-h-0 max-h-full">
+  <header class="game-panel__header text-cyan shrink-0">
     <span id="global-chat-title">Chat Global</span>
     <button
       id="global-chat-toggle"
@@ -29,14 +29,14 @@ import Icon from "../ui/Icon.astro";
     </button>
   </header>
 
-  <div id="global-chat-body" class="flex flex-1 flex-col overflow-hidden">
-    <ul id="global-chat-messages" class="flex flex-1 flex-col gap-1 overflow-y-auto px-3 py-2 text-xs">
+  <div id="global-chat-body" class="flex flex-1 min-h-0 flex-col overflow-hidden">
+    <ul id="global-chat-messages" class="flex flex-1 min-h-0 flex-col gap-1 overflow-y-auto px-3 py-2 text-xs">
       <!-- Se completa en runtime desde /api/v1/chat/messages -->
     </ul>
 
-    <p id="global-chat-status" class="hidden px-3 pb-1 text-[10px] text-muted"></p>
+    <p id="global-chat-status" class="hidden shrink-0 px-3 pb-1 text-[10px] text-muted"></p>
 
-    <form id="global-chat-form" class="flex gap-1 border-t border-outline-strong p-2">
+    <form id="global-chat-form" class="flex shrink-0 gap-1 border-t border-outline-strong p-2">
       <input
         id="global-chat-input"
         type="text"

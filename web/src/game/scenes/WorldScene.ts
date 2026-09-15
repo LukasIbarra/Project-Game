@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import type { Manifest } from "../assets/manifest";
+import { isTypingInFormField } from "../input/keyboardGuard";
 import { InteractionUI } from "../world/InteractionUI";
 import { Npc } from "../world/Npc";
 import { WorldMap, type StructureInfo } from "../world/WorldMap";
@@ -74,8 +75,24 @@ export class WorldScene extends Phaser.Scene {
   update(_time: number, delta: number) {
     const deltaSeconds = delta / 1000;
     const dialogueOpen = this.ui.isDialogueOpen;
+    // Corrección de UX: mientras el foco está en el input del chat (u otro
+    // campo de texto de la página), WASD/E no deben moverlo/interactuar —
+    // ver keyboardGuard.ts. `disableGlobalCapture()` es la parte
+    // importante: por default Phaser captura (preventDefault) las teclas
+    // registradas con addKeys() a nivel del KeyboardManager compartido de
+    // todo el juego -eso pasa ANTES y APARTE de cualquier `enabled` de
+    // escena, así que sin esto la letra ni siquiera llega a escribirse en
+    // el input, sin importar si el movimiento está guardado o no más
+    // abajo-. Es exactamente el caso de uso documentado por Phaser para
+    // esta API ("swap to a DOM element").
+    const typing = isTypingInFormField();
+    if (typing) {
+      this.input.keyboard!.disableGlobalCapture();
+    } else {
+      this.input.keyboard!.enableGlobalCapture();
+    }
 
-    if (!dialogueOpen) {
+    if (!dialogueOpen && !typing) {
       this.player.update(
         {
           up: this.cursors.up.isDown || this.wasd.W.isDown,
@@ -89,7 +106,7 @@ export class WorldScene extends Phaser.Scene {
 
     this.updateInteractions();
 
-    if (Phaser.Input.Keyboard.JustDown(this.interactKey)) {
+    if (!typing && Phaser.Input.Keyboard.JustDown(this.interactKey)) {
       this.handleInteractKey();
     }
   }

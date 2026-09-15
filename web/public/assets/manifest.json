@@ -10,6 +10,16 @@
       "frameRate": 6
     }
   },
+  "bodyAttack": {
+    "base": {
+      "sheet": "characters/player/base/16x32 Attack-Sheet.png",
+      "frameWidth": 32,
+      "frameHeight": 32,
+      "_comment": "Sheet completo: 5 filas direccionales (down/down-right/right/up-right/up) x 7 columnas, mismo esquema que worldPlayer/housePlayer. Solo se usa la fila 'right' (índices 14-20 = fila 2 x 7 columnas) porque en BattleScene el atacante siempre mira hacia la derecha y el defensor se espeja con flipX -igual que ya hace CharacterRenderer con el idle-. Inspeccionado frame a frame: 0-2 preparación (el personaje se enrosca), 3 impacto (golpe extendido), 4-6 recuperación (vuelve a guardia). No hay un frame dedicado a 'recibir daño' en todo el sheet.",
+      "frames": [14, 15, 16, 17, 18, 19, 20],
+      "frameRate": 14
+    }
+  },
   "hair": {},
   "shirt": {},
   "pants": {},

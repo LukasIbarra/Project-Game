@@ -58,6 +58,12 @@ type ManifestCategory = Record<string, SpriteLayerAsset>;
 export interface Manifest {
   version: number;
   body: ManifestCategory;
+  // Fase 10 (mejora visual Arena): animación de ataque de `body.base` -no
+  // es un layer nuevo compuesto en el Container (nunca se "equipa"), es un
+  // clip alternativo para el MISMO sprite de body que BattleScene activa
+  // temporalmente durante un evento de golpe/crítico y revierte a idle al
+  // terminar. Ver CharacterRenderer.playAttack().
+  bodyAttack: ManifestCategory;
   hair: ManifestCategory;
   shirt: ManifestCategory;
   pants: ManifestCategory;

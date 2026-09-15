@@ -1,5 +1,6 @@
 import Phaser from "phaser";
 import type { Manifest } from "../assets/manifest";
+import { isTypingInFormField } from "../input/keyboardGuard";
 import type { RoomObjectDto } from "../net/ApiClient";
 import type { AABB } from "../world/WorldPlayer";
 import { WorldMap } from "../world/WorldMap";
@@ -115,7 +116,18 @@ export class RoomScene extends Phaser.Scene {
   }
 
   update(_time: number, delta: number) {
-    if (!this.editMode) {
+    // Corrección de UX: mismo criterio que WorldScene -mientras el foco
+    // está en el input del chat, WASD no debe mover al personaje, y
+    // tampoco debe bloquear la letra a nivel navegador (ver comentario
+    // extenso en WorldScene.update())-.
+    const typing = isTypingInFormField();
+    if (typing) {
+      this.input.keyboard!.disableGlobalCapture();
+    } else {
+      this.input.keyboard!.enableGlobalCapture();
+    }
+
+    if (!this.editMode && !typing) {
       this.player.update(
         {
           up: this.cursors.up.isDown || this.wasd.W.isDown,

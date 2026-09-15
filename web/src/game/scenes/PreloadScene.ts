@@ -1,6 +1,10 @@
 import Phaser from "phaser";
 import type { Manifest } from "../assets/manifest";
-import { preloadCharacterLayers, preloadCharacterLayersForMany } from "../entities/CharacterRenderer";
+import {
+  preloadAttackAnimations,
+  preloadCharacterLayers,
+  preloadCharacterLayersForMany,
+} from "../entities/CharacterRenderer";
 import { DEFAULT_APPEARANCE } from "../entities/Player";
 import { preloadRoomAssets, registerFurnitureFrames } from "../room/roomAssets";
 import { preloadWorldAssets } from "../world/worldAssets";
@@ -48,10 +52,11 @@ export class PreloadScene extends Phaser.Scene {
     if (this.targetScene === "BattleScene") {
       const attacker = sceneData.attacker as BattleFighterData | undefined;
       const defender = sceneData.defender as BattleFighterData | undefined;
-      preloadCharacterLayersForMany(this, manifest, [
-        attacker?.appearance ?? DEFAULT_APPEARANCE,
-        defender?.appearance ?? DEFAULT_APPEARANCE,
-      ]);
+      const appearances = [attacker?.appearance ?? DEFAULT_APPEARANCE, defender?.appearance ?? DEFAULT_APPEARANCE];
+      preloadCharacterLayersForMany(this, manifest, appearances);
+      // Mejora visual Arena: solo BattleScene necesita el sheet de ataque
+      // -World/Room nunca llegan a este branch-.
+      preloadAttackAnimations(this, manifest, appearances);
     } else {
       preloadCharacterLayers(this, manifest, DEFAULT_APPEARANCE);
 

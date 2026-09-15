@@ -127,6 +127,13 @@ import GameView from "../components/game/GameView.astro";
 
 	let latestState: ArenaStateDto | null = null;
 	let cooldownTimer: ReturnType<typeof setInterval> | null = null;
+	// Bug real: cada combate nuevo llamaba startGame() de nuevo sin destruir
+	// la instancia de Phaser.Game anterior -startGame() siempre hace `new
+	// Phaser.Game({parent: containerId, ...})`, que agrega un <canvas> más
+	// dentro de #battle-container en vez de reemplazar el existente-.
+	// Guardamos la instancia activa acá para destruirla (removiendo su
+	// canvas del DOM) justo antes de crear la siguiente.
+	let currentBattleGame: ReturnType<typeof startGame> | null = null;
 
 	function showError(message: string): void {
 		errorEl.textContent = message;
@@ -290,6 +297,12 @@ import GameView from "../components/game/GameView.astro";
 		battleResultEl.classList.remove("flex");
 		battleLogEl.innerHTML = "";
 
+		// Nunca crear un segundo <canvas>: si ya había un combate montado
+		// (el jugador volvió a la Arena y atacó de nuevo), se destruye antes
+		// de levantar el nuevo -destroy(true) también saca el <canvas> viejo
+		// del DOM, no solo libera memoria-.
+		currentBattleGame?.destroy(true);
+
 		const game = startGame("battle-container", "BattleScene", {
 			attacker: {
 				name: log.events_json.attacker.name,
@@ -305,6 +318,7 @@ import GameView from "../components/game/GameView.astro";
 			},
 			events: log.events_json.events,
 		});
+		currentBattleGame = game;
 
 		const waitScene = setInterval(() => {
 			const scene = game.scene.getScene("BattleScene") as BattleScene | undefined;
@@ -348,6 +362,7 @@ import GameView from "../components/game/GameView.astro";
 	cooldownTimer = setInterval(tickCooldowns, 1000);
 	window.addEventListener("beforeunload", () => {
 		if (cooldownTimer) clearInterval(cooldownTimer);
+		currentBattleGame?.destroy(true);
 	});
 
 	refresh();
