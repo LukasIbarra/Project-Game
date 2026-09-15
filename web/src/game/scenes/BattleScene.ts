@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import type { Manifest } from "../assets/manifest";
+import { publicUrl, type Manifest } from "../assets/manifest";
 import { CharacterRenderer, type CharacterAppearance } from "../entities/CharacterRenderer";
 import type { CombatEventDto } from "../net/ApiClient";
 
@@ -25,10 +25,12 @@ const MS_PER_EVENT = 1400;
 // que ya usa Astro directamente (AppShell/GameView, ver fondo_05.png/
 // fondo_1.png) — el manifest.json/assetUrl() es específicamente para el
 // pipeline de personajes/tiles de Phaser (CLAUDE.md #5), no para un fondo
-// de escena estático y único como este, así que se carga con su propio
-// path directo en vez de forzarlo en ese sistema.
+// de escena estático y único como este. `publicUrl()` (mismo cache-busting
+// que assetUrl(), ver manifest.ts) sí aplica igual -es el mecanismo
+// general para cualquier archivo público versionado, no solo los del
+// pipeline de personajes-.
 const BATTLE_BACKGROUND_KEY = "battle-bg-dojo";
-const BATTLE_BACKGROUND_URL = "/backgrounds/dojo-arena.jpg";
+const BATTLE_BACKGROUND_PATH = "backgrounds/dojo-arena.jpg";
 
 // Fase 10, sección 11-13: el backend ya calculó y guardó TODO el combate
 // (CLAUDE.md #6) -esta escena solo lo REPRODUCE al ritmo que ella misma
@@ -77,7 +79,7 @@ export class BattleScene extends Phaser.Scene {
   }
 
   preload() {
-    this.load.image(BATTLE_BACKGROUND_KEY, BATTLE_BACKGROUND_URL);
+    this.load.image(BATTLE_BACKGROUND_KEY, publicUrl(BATTLE_BACKGROUND_PATH));
   }
 
   create() {

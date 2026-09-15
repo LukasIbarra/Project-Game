@@ -119,11 +119,51 @@ export function resolveLayerAsset(
   return manifest[category]?.[key] ?? null;
 }
 
+// Cache-busting de assets estáticos (sprites/tilesets/fondos bajo
+// public/assets/ y public/backgrounds/): Vercel los sirve con
+// Cache-Control: immutable + 1 año (ver docs), así que reemplazar un PNG
+// sin cambiarle la URL deja a cualquiera que ya visitó el sitio con la
+// versión vieja para siempre. `asset-versions.json` (generado en build
+// time, ver scripts/generate-asset-versions.mjs -un hash de contenido por
+// archivo, nunca Date.now()/random-) resuelve esto: la URL solo cambia
+// para el archivo que de verdad cambió, todo lo demás conserva su caché
+// intacto. `setAssetVersions()` lo carga UNA vez (PreloadScene, al mismo
+// tiempo que manifest.json) y de ahí en más CUALQUIER llamada a
+// assetUrl()/publicUrl() en cualquier archivo (CharacterRenderer,
+// worldAssets, roomAssets, BattleScene) agrega el hash correcto sola,
+// sin que esos archivos sepan que este sistema existe -mismo principio
+// que el resto del asset system: el código pide una clave/ruta lógica,
+// nunca arma el versionado a mano-.
+export type AssetVersions = Record<string, string>;
+
+let assetVersions: AssetVersions = {};
+
+export function setAssetVersions(versions: AssetVersions): void {
+  assetVersions = versions;
+}
+
+function appendVersion(urlPath: string, rawKey: string): string {
+  const hash = assetVersions[rawKey];
+  return hash ? `${urlPath}?v=${hash}` : urlPath;
+}
+
 // Convierte una ruta relativa del manifest (puede tener espacios) en una
-// URL válida bajo /assets/, codificando cada segmento por separado.
+// URL válida bajo /assets/, codificando cada segmento por separado, con
+// el hash de cache-busting ya aplicado si asset-versions.json cargó a
+// tiempo (si no, cae a la URL sin versión -sigue funcionando, solo sin el
+// beneficio del cache busting, ej. en dev local sin haber corrido build-).
 export function assetUrl(relativePath: string): string {
   const encodedSegments = relativePath.split("/").map(encodeURIComponent);
-  return `/assets/${encodedSegments.join("/")}`;
+  return appendVersion(`/assets/${encodedSegments.join("/")}`, `assets/${relativePath}`);
+}
+
+// Mismo mecanismo que assetUrl(), para archivos públicos que NO viven
+// bajo /assets/ (ej. fondos de escena como BattleScene.ts -esos nunca
+// pasaron por el pipeline de personajes/tiles, CLAUDE.md #5 es
+// específicamente sobre esa parte del sistema, no sobre fondos sueltos-).
+export function publicUrl(relativePath: string): string {
+  const encodedSegments = relativePath.split("/").map(encodeURIComponent);
+  return appendVersion(`/${encodedSegments.join("/")}`, relativePath);
 }
 
 // Clave lógica que identifica un layer cargado en Phaser, con el mismo

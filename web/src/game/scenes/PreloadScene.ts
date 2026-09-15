@@ -1,5 +1,5 @@
 import Phaser from "phaser";
-import type { Manifest } from "../assets/manifest";
+import { setAssetVersions, type AssetVersions, type Manifest } from "../assets/manifest";
 import {
   preloadAttackAnimations,
   preloadCharacterLayers,
@@ -11,6 +11,7 @@ import { preloadWorldAssets } from "../world/worldAssets";
 import type { BattleFighterData } from "./BattleScene";
 
 const MANIFEST_CACHE_KEY = "manifest";
+const ASSET_VERSIONS_CACHE_KEY = "assetVersions";
 
 interface PreloadSceneData {
   targetScene?: string;
@@ -43,10 +44,18 @@ export class PreloadScene extends Phaser.Scene {
 
   preload() {
     this.load.json(MANIFEST_CACHE_KEY, "/assets/manifest.json");
+    // Cache-busting de assets (ver manifest.ts): generado en build time,
+    // puede no existir en dev local si nunca se corrió `npm run build`
+    // -un 404 acá no rompe nada, setAssetVersions cae a {} y todo sigue
+    // funcionando igual, solo sin el hash en la URL-.
+    this.load.json(ASSET_VERSIONS_CACHE_KEY, "/asset-versions.json");
   }
 
   create() {
     const manifest = this.cache.json.get(MANIFEST_CACHE_KEY) as Manifest;
+    const versions = (this.cache.json.get(ASSET_VERSIONS_CACHE_KEY) as AssetVersions | undefined) ?? {};
+    setAssetVersions(versions);
+
     const sceneData = (this.registry.get("sceneData") as Record<string, unknown> | undefined) ?? {};
 
     if (this.targetScene === "BattleScene") {
