@@ -53,6 +53,10 @@ class CombatStatsService
     // estadísticas base", sin árbol de puntos de atributo todavía.
     private const STAT_GAIN_PER_LEVEL = 2;
 
+    public function __construct(private readonly ActivityLogger $activity)
+    {
+    }
+
     /**
      * @return array{max_hp:int,attack:int,defense:int,crit_chance:float,dodge_chance:float}
      */
@@ -116,6 +120,15 @@ class CombatStatsService
         }
 
         $character->save();
+
+        // Fase 12: evento neutro -sin oponente ni resultado de combate, así
+        // que se loguea para CUALQUIER personaje que suba de nivel (incluido
+        // un defensor de Arena), a diferencia del evento "combat" que
+        // CombatService reserva solo al atacante (Fase 17 todavía no cubre
+        // al defensor).
+        if ($leveledUp) {
+            $this->activity->log($character, 'level_up', ['new_level' => $character->level]);
+        }
 
         return ['leveled_up' => $leveledUp, 'new_level' => $character->level];
     }

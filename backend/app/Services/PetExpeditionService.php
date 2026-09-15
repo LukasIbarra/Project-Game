@@ -23,8 +23,10 @@ use Illuminate\Support\Facades\DB;
 // (idempotente) sin locks ni jobs (CLAUDE.md #2, resolución perezosa).
 class PetExpeditionService
 {
-    public function __construct(private readonly InventoryGrantService $grantService)
-    {
+    public function __construct(
+        private readonly InventoryGrantService $grantService,
+        private readonly ActivityLogger $activity
+    ) {
     }
 
     public function start(Pet $pet, PetDestination $destination): PetExpedition
@@ -133,6 +135,11 @@ class PetExpeditionService
             $pet = $expedition->pet;
             $pet->status = PetStatus::Idle;
             $pet->save();
+
+            $this->activity->log($character, 'expedition_claimed', [
+                'destination_name' => $expedition->destination->name,
+                'loot' => $loot,
+            ]);
         });
 
         return $loot;

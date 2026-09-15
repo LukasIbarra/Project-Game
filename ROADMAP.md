@@ -36,7 +36,7 @@ fijadas para todo el roadmap:
 |---|---|---|
 | 1–10 | (fases previas: auth, personaje, mundo, casa, inventario/equipo, mascota+expediciones AFK, crafting/economía, combate PvP/Arena) | ✅ Completadas |
 | **11** | **Player State real** | ✅ **Completada** |
-| 12 | Activity Feed | ⬜ Pendiente |
+| **12** | **Activity Feed** | ✅ **Completada** |
 | 13 | Ranking real | ⬜ Pendiente |
 | 14 | Notificaciones toast | ⬜ Pendiente |
 | 15 | Navegación real desde el Mundo | ⬜ Pendiente |
@@ -80,7 +80,7 @@ documento.
 
 ---
 
-### FASE 12 — Activity Feed
+### FASE 12 — Activity Feed ✅ COMPLETADA
 
 **Objetivo:** feed genérico y real de actividad reciente, diseñado para
 crecer sin tocar el esquema.
@@ -382,3 +382,43 @@ transcribe en detalle al cerrar la Fase 38.
 - La deuda de `DB_URL` pooled de Neon (SQLSTATE 25P02) sigue abierta y sin
   tocar — no era parte del alcance de esta fase, se mantiene documentada
   arriba para las Fases 16/20.
+
+### Fase 12 — Activity Feed — ✅ Completada
+
+**Implementado:**
+- Migración `activity_events` (`character_id` FK cascadeOnDelete, `type`
+  string, `payload` json, sin `updated_at` — append-only), modelo
+  `ActivityEvent`, servicio `ActivityLogger::log()` (único punto de
+  escritura, inyectado donde hace falta en vez de crear el modelo a mano en
+  cada servicio).
+- 5 tipos instrumentados exactamente donde ya ocurre la acción real, dentro
+  de la transacción existente de cada una: `level_up`
+  (`CombatStatsService::addExperience`, para CUALQUIER personaje que suba
+  de nivel — decisión confirmada con el usuario, ver justificación en el
+  código), `combat` (`CombatService::attack`, **solo para el atacante** — el
+  defensor queda deliberadamente sin instrumentar, es Fase 17), `sale`
+  (`EconomyService::sell`), `crafting` (`CraftingService::craft`),
+  `expedition_claimed` (`PetExpeditionService::claim`).
+- `GET /v1/activity` (nuevo), mismo patrón exacto que `ChatController`
+  (`after_id`, tope 25, orden cronológico, siempre filtrado por el
+  personaje del usuario autenticado).
+- Frontend: `home.astro` reemplaza `MOCK_RECENT_ACTIVITY` por un feed real
+  (polling cada 10s con `after_id`, dedup, altura fija `max-h-48` +
+  scroll interno, timestamps relativos, mapa `type → mensaje` en cliente,
+  estado vacío). `ApiClient.ts` gana `ActivityEventDto`/`getActivityEvents`.
+- La traducción `type → texto` vive 100% en el cliente; el backend nunca
+  arma mensajes de UI — agregar un tipo nuevo (Fase 16/17/21/22) es sumar
+  un `case` en `describeActivity()`, sin tocar el backend.
+
+**Deuda/observaciones detectadas, no resueltas en esta fase:**
+- El índice de `activity_events` quedó sobre `[character_id, id]` (no
+  `[character_id, created_at]` como decía el borrador original de este
+  documento) porque el cursor real de paginación es `id`, igual que
+  `chat_messages` — ajuste menor, ya reflejado arriba.
+- Un `bootstrap/cache/routes-v7.php` viejo (de antes de esta fase) hizo que
+  la ruta nueva no apareciera hasta correr `php artisan route:clear` — no
+  es un problema del código, pero si un futuro deploy usa rutas cacheadas
+  hay que asegurarse de regenerar el caché en cada release, no solo en
+  migraciones.
+- No se instrumentaron más tipos que los 5 pedidos (ataque recibido, evento
+  de expedición, compra en tienda, evento de mundo quedan para sus fases).

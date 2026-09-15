@@ -566,3 +566,20 @@ export async function sendChatMessage(message: string): Promise<ChatMessageDto> 
     body: JSON.stringify({ message }),
   });
 }
+
+// Fase 12: feed de actividad reciente -mismo patrón exacto que el chat
+// (after_id, sin WebSockets). El backend ya resuelve el `type` a texto en
+// ningún lado -esa traducción vive en el cliente (home.astro)-, `payload`
+// llega con forma libre según `type`, nunca tipada campo por campo acá
+// porque crecerá con cada fase que agregue un tipo nuevo (Fase 16/17/21/22).
+export interface ActivityEventDto {
+  id: number;
+  type: string;
+  payload: Record<string, unknown>;
+  created_at: string;
+}
+
+export async function getActivityEvents(afterId?: number): Promise<ActivityEventDto[]> {
+  const query = afterId ? `?after_id=${afterId}` : "";
+  return request(`/api/v1/activity${query}`);
+}

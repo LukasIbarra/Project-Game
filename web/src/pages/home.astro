@@ -4,10 +4,16 @@
 // es contenido real, fuera de alcance) — solo una landing coherente
 // post-login.
 //
-// Fase 11: "Estado del personaje" ahora usa datos reales (mismo módulo
+// Fase 11: "Estado del personaje" usa datos reales (mismo módulo
 // game/state/playerState.ts que usa el HUD, un solo lugar que sabe pintar
-// nivel/XP/monedas). "Actividad reciente" sigue siendo mock a propósito
-// -eso es la Fase 12, todavía no implementada-.
+// nivel/XP/monedas).
+//
+// Fase 12: "Actividad reciente" ahora es un feed real contra GET
+// /v1/activity -mismo patrón de polling + after_id que GlobalChat.astro,
+// sin WebSockets-. El backend nunca traduce `type` a texto: ese mapeo vive
+// acá (ver `describeActivity` en el script), así que agregar un `type`
+// nuevo en una fase futura (Fase 16 tienda, 17 combate recibido, 21/22
+// expedición/mundo) es solo sumar un caso, sin tocar el backend.
 import AppShell from "../layouts/AppShell.astro";
 import GameButton from "../components/ui/GameButton.astro";
 import GameBadge from "../components/ui/GameBadge.astro";
@@ -22,9 +28,6 @@ const quickLinks: { href: string; label: string; icon: IconName }[] = [
   { href: "/arena", label: "Arena", icon: "arena" },
   { href: "/play", label: "Mundo", icon: "world" },
 ];
-
-// Mock de ejemplo, no viene de ningún log real todavía.
-const MOCK_RECENT_ACTIVITY = ["Creaste tu cuenta", "Tu personaje base se cargó correctamente"];
 ---
 
 <AppShell title="Inicio">
@@ -51,12 +54,14 @@ const MOCK_RECENT_ACTIVITY = ["Creaste tu cuenta", "Tu personaje base se cargó 
 			</GamePanel>
 
 			<GamePanel title="Actividad reciente" bodyClass="flex flex-col gap-2 p-5">
-				<ul class="m-0 flex list-none flex-col gap-2 p-0 text-sm text-muted">
-					{MOCK_RECENT_ACTIVITY.map((entry) => (
-						<li class="border-l-2 border-outline-strong pl-2">{entry}</li>
-					))}
+				<ul
+					id="activity-feed-list"
+					class="m-0 flex max-h-48 list-none flex-col gap-2 overflow-y-auto p-0 text-sm text-muted"
+				>
+					<li id="activity-feed-empty" class="border-l-2 border-outline-strong pl-2">
+						Sin actividad todavía.
+					</li>
 				</ul>
-				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Datos de ejemplo</span>
 			</GamePanel>
 		</div>
 
@@ -77,7 +82,7 @@ const MOCK_RECENT_ACTIVITY = ["Creaste tu cuenta", "Tu personaje base se cargó 
 </AppShell>
 
 <script>
-	import type { CharacterDto } from "../game/net/ApiClient";
+	import { getActivityEvents, type ActivityEventDto, type CharacterDto } from "../game/net/ApiClient";
 	import { PLAYER_STATE_CHANGED_EVENT, expPercent, refreshPlayerState } from "../game/state/playerState";
 
 	const levelEl = document.getElementById("home-level")!;
@@ -101,4 +106,100 @@ const MOCK_RECENT_ACTIVITY = ["Creaste tu cuenta", "Tu personaje base se cargó 
 	window.addEventListener(PLAYER_STATE_CHANGED_EVENT, (event) => {
 		renderPlayerState((event as CustomEvent<CharacterDto>).detail);
 	});
+
+	// Fase 12: Activity Feed. Mismo patrón que GlobalChat.astro -polling con
+	// after_id, sin WebSockets-, pero con un intervalo más relajado (10s):
+	// a diferencia del chat, "actividad reciente" no es una conversación en
+	// vivo, no hace falta pollear cada 2.5s.
+	const ACTIVITY_POLL_INTERVAL_MS = 10000;
+
+	const activityListEl = document.getElementById("activity-feed-list")!;
+	const activityEmptyEl = document.getElementById("activity-feed-empty")!;
+
+	function relativeTime(iso: string): string {
+		const diffSec = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+		if (diffSec < 60) return "hace un momento";
+		const diffMin = Math.round(diffSec / 60);
+		if (diffMin < 60) return `hace ${diffMin} min`;
+		const diffHr = Math.round(diffMin / 60);
+		if (diffHr < 24) return `hace ${diffHr} h`;
+		return `hace ${Math.round(diffHr / 24)} d`;
+	}
+
+	// El backend nunca traduce `type` a texto (ver ApiClient.ts) -ese mapeo
+	// vive acá para que agregar un tipo nuevo en una fase futura sea solo
+	// sumar un `case`, sin tocar el endpoint.
+	function describeActivity(event: ActivityEventDto): string {
+		const p = event.payload as Record<string, any>;
+		switch (event.type) {
+			case "level_up":
+				return `⬆ ¡Subiste a nivel ${p.new_level}!`;
+			case "combat":
+				return p.result === "victory"
+					? `⚔ Ganaste un combate contra ${p.opponent_name} (+${p.xp} XP, +${p.coins} 💰)`
+					: `⚔ Perdiste un combate contra ${p.opponent_name}`;
+			case "expedition_claimed":
+				return `🐾 Tu mascota volvió de ${p.destination_name}`;
+			case "sale":
+				return `💰 Vendiste ${p.quantity}x ${p.item_name} por ${p.coins_earned} monedas`;
+			case "crafting":
+				return `🔨 Fabricaste ${p.quantity}x ${p.result_item_name}`;
+			default:
+				return "Actividad reciente";
+		}
+	}
+
+	function isNearBottom(): boolean {
+		return activityListEl.scrollTop + activityListEl.clientHeight >= activityListEl.scrollHeight - 24;
+	}
+
+	function renderActivityEvent(event: ActivityEventDto): void {
+		activityEmptyEl.classList.add("hidden");
+
+		const item = document.createElement("li");
+		item.className = "border-l-2 border-outline-strong pl-2";
+
+		const text = document.createElement("span");
+		text.textContent = describeActivity(event);
+		item.appendChild(text);
+
+		const time = document.createElement("span");
+		time.className = "ml-1 text-[10px] text-muted";
+		time.textContent = relativeTime(event.created_at);
+		item.appendChild(time);
+
+		activityListEl.appendChild(item);
+	}
+
+	function initActivityFeed(): void {
+		let lastId = 0;
+		let stopped = false;
+
+		async function tick(): Promise<void> {
+			if (stopped) return;
+			try {
+				const events = await getActivityEvents(lastId || undefined);
+				if (events.length > 0) {
+					const stickToBottom = lastId === 0 || isNearBottom();
+					lastId = Math.max(lastId, ...events.map((e) => e.id));
+					events.forEach(renderActivityEvent);
+					if (stickToBottom) {
+						activityListEl.scrollTop = activityListEl.scrollHeight;
+					}
+				}
+			} catch {
+				// Backend caído o sesión inválida: el feed no debe romper la
+				// página, simplemente no se actualiza hasta el próximo tick.
+			}
+		}
+
+		tick();
+		const timer = setInterval(tick, ACTIVITY_POLL_INTERVAL_MS);
+		window.addEventListener("pagehide", () => {
+			stopped = true;
+			clearInterval(timer);
+		});
+	}
+
+	initActivityFeed();
 </script>

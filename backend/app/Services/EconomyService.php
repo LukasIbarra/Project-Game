@@ -13,8 +13,10 @@ use Illuminate\Validation\ValidationException;
 // cliente (sección 11: nunca aceptar price/total_price del frontend).
 class EconomyService
 {
-    public function __construct(private readonly InventoryGrantService $inventory)
-    {
+    public function __construct(
+        private readonly InventoryGrantService $inventory,
+        private readonly ActivityLogger $activity
+    ) {
     }
 
     public function sell(Character $character, Item $item, int $quantity): int
@@ -37,6 +39,13 @@ class EconomyService
         DB::transaction(function () use ($character, $item, $quantity, $totalValue) {
             $this->inventory->consume($character, $item, $quantity);
             $character->increment('coins', $totalValue);
+
+            $this->activity->log($character, 'sale', [
+                'item_key' => $item->key,
+                'item_name' => $item->name,
+                'quantity' => $quantity,
+                'coins_earned' => $totalValue,
+            ]);
         });
 
         return $totalValue;

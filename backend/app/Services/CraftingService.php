@@ -13,8 +13,10 @@ use Illuminate\Validation\ValidationException;
 // de duplicar la lógica de stack (pedido explícito de la fase).
 class CraftingService
 {
-    public function __construct(private readonly InventoryGrantService $inventory)
-    {
+    public function __construct(
+        private readonly InventoryGrantService $inventory,
+        private readonly ActivityLogger $activity
+    ) {
     }
 
     public function craft(Character $character, Recipe $recipe): void
@@ -63,6 +65,13 @@ class CraftingService
             }
 
             $this->inventory->grant($character, $recipe->result, $recipe->result_quantity);
+
+            $this->activity->log($character, 'crafting', [
+                'recipe_key' => $recipe->key,
+                'result_item_key' => $recipe->result->key,
+                'result_item_name' => $recipe->result->name,
+                'quantity' => $recipe->result_quantity,
+            ]);
         });
     }
 }

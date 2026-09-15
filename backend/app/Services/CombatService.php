@@ -30,8 +30,10 @@ class CombatService
 
     private const LOSER_COINS = 3;
 
-    public function __construct(private readonly CombatStatsService $stats)
-    {
+    public function __construct(
+        private readonly CombatStatsService $stats,
+        private readonly ActivityLogger $activity
+    ) {
     }
 
     // Segundos restantes de cooldown de $attacker contra ESTE $defender en
@@ -105,6 +107,18 @@ class CombatService
             $attacker->save();
             $defender->coins += $defenderCoins;
             $defender->save();
+
+            // Fase 12: solo el atacante -es quien inició la acción-. El
+            // defensor se entera de esto recién en Fase 17 (Historial de
+            // Combates + Ataques Recibidos), a propósito no adelantado acá.
+            $this->activity->log($attacker, 'combat', [
+                'result' => $winnerIsAttacker ? 'victory' : 'defeat',
+                'opponent_name' => $defender->name,
+                'xp' => $attackerXp,
+                'coins' => $attackerCoins,
+                'leveled_up' => $attackerProgress['leveled_up'],
+                'new_level' => $attackerProgress['new_level'],
+            ]);
 
             return CombatLog::create([
                 'attacker_character_id' => $attacker->id,

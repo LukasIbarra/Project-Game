@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\ActivityController;
 use App\Http\Controllers\Api\ArenaAttackController;
 use App\Http\Controllers\Api\ArenaController;
 use App\Http\Controllers\Api\ChatController;
@@ -46,6 +47,10 @@ Route::prefix('v1/auth')->group(function () {
 // que mande el cliente (CLAUDE.md principio #1).
 Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get('/character', [CharacterController::class, 'show']);
+
+    // Fase 12: feed de actividad reciente -mismo principio, siempre el
+    // personaje del usuario autenticado, nunca uno que mande el cliente.
+    Route::get('/activity', [ActivityController::class, 'index']);
 
     Route::get('/items', [ItemController::class, 'index']);
 
