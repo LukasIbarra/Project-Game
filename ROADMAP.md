@@ -37,7 +37,7 @@ fijadas para todo el roadmap:
 | 1–10 | (fases previas: auth, personaje, mundo, casa, inventario/equipo, mascota+expediciones AFK, crafting/economía, combate PvP/Arena) | ✅ Completadas |
 | **11** | **Player State real** | ✅ **Completada** |
 | **12** | **Activity Feed** | ✅ **Completada** |
-| 13 | Ranking real | ⬜ Pendiente |
+| **13** | **Ranking real** | ✅ **Completada** |
 | 14 | Notificaciones toast | ⬜ Pendiente |
 | 15 | Navegación real desde el Mundo | ⬜ Pendiente |
 | 16 | Tienda | ⬜ Pendiente |
@@ -102,7 +102,7 @@ no hacer notificación en tiempo real de esto (es Fase 14).
 
 ---
 
-### FASE 13 — Ranking real
+### FASE 13 — Ranking real ✅ COMPLETADA
 
 **Objetivo:** conectar `/ranking` a `ArenaRankingService` ya existente.
 **Backend:** ninguno nuevo, o `GET /v1/ranking` reusando el mismo service.
@@ -422,3 +422,39 @@ transcribe en detalle al cerrar la Fase 38.
   migraciones.
 - No se instrumentaron más tipos que los 5 pedidos (ataque recibido, evento
   de expedición, compra en tienda, evento de mundo quedan para sus fases).
+
+### Fase 13 — Ranking real — ✅ Completada
+
+**Implementado:**
+- Nuevo `RankingController::index()` (`GET /v1/ranking`), delgado: orquesta
+  los mismos 3 métodos que `ArenaController` ya usaba
+  (`ArenaRankingService::topRanking/statsFor/rankOf`), sin lógica de
+  ranking nueva. Devuelve `{ranking: [...], me: {character_id, rank, wins,
+  losses} | null}` — `me` es `null` solo si el usuario autenticado no
+  tiene personaje (caso defensivo, no ocurre en el flujo normal de
+  registro).
+- `web/src/game/net/ApiClient.ts`: `RankingMeDto`/`RankingStateDto` +
+  `getRanking()`, reusando `ArenaRankingEntryDto` ya existente (mismo
+  shape que `ArenaStateDto.ranking`, cero DTO duplicado).
+- `ranking.astro` reemplaza el `PlaceholderView` — mismo patrón visual
+  exacto que la lista "Ranking" ya existente en `arena.astro` (misma
+  clase de fila, mismo resaltado del propio personaje), con loading/
+  error/empty state propios.
+- Top 10 (límite ya existente en el servicio, sin paginación/filtros
+  nuevos, tal como pedía la fase). Sin datos mock: verificado en vivo con
+  Playwright que el ranking real de la DB de desarrollo se renderiza tal
+  cual (incluyendo cuentas de prueba de fases anteriores, cero jugadores
+  falsos inventados).
+
+**Deuda/observaciones detectadas, no resueltas en esta fase (fuera de
+alcance de Fase 13):**
+- `ChatTest.php` tiene 2 tests preexistentes que fallan contra la DB de
+  desarrollo compartida (`chat_messages` ya tiene filas reales de uso
+  real, y esos tests asumían tabla vacía). No relacionado con Ranking —
+  no se tocó chat en esta fase, solo se documenta.
+- El dev server de Astro (`astro dev`) tiene latencia de compilación en
+  frío la primera vez que se pide una página recién modificada — no es un
+  bug de la app (el build de producción no tiene este problema), pero vale
+  tenerlo presente al verificar manualmente cualquier fase futura recién
+  implementada: esperar un poco más en el primer request de una página
+  nueva antes de asumir que algo no funciona.

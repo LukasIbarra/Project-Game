@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\PetController;
 use App\Http\Controllers\Api\PetExpeditionController;
+use App\Http\Controllers\Api\RankingController;
 use App\Http\Controllers\Api\RecipeController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomObjectController;
@@ -92,6 +93,12 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get('/arena', [ArenaController::class, 'index']);
     Route::get('/arena/combats/{combatLog}', [ArenaController::class, 'show']);
     Route::post('/arena/attack', [ArenaAttackController::class, 'attack']);
+
+    // Fase 13: endpoint propio y liviano para /ranking -reusa
+    // ArenaRankingService tal cual (misma fuente de verdad que ya usa
+    // GET /arena), sin acoplar la pantalla de Ranking a la respuesta
+    // completa de Arena.
+    Route::get('/ranking', [RankingController::class, 'index']);
 
     // Chat global (demo, polling HTTP) -mismo principio que el resto: el
     // usuario que aparece en cada mensaje siempre es el autenticado por

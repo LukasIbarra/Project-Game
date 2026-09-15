@@ -534,6 +534,26 @@ export async function getArena(): Promise<ArenaStateDto> {
   return request("/api/v1/arena");
 }
 
+// Fase 13: /ranking tiene su propio endpoint liviano -reusa
+// ArenaRankingService, mismo tipo de fila que ArenaStateDto.ranking
+// (ArenaRankingEntryDto), pero sin acoplarse a la respuesta completa de
+// Arena (oponentes/cooldowns/mis stats de combate no le sirven).
+export interface RankingMeDto {
+  character_id: number;
+  rank: number;
+  wins: number;
+  losses: number;
+}
+
+export interface RankingStateDto {
+  ranking: ArenaRankingEntryDto[];
+  me: RankingMeDto | null;
+}
+
+export async function getRanking(): Promise<RankingStateDto> {
+  return request("/api/v1/ranking");
+}
+
 export async function attackCharacter(defenderCharacterId: number): Promise<CombatLogDto> {
   return request("/api/v1/arena/attack", {
     method: "POST",

@@ -1,12 +1,76 @@
 ---
+// Fase 13: reemplaza el PlaceholderView por un ranking real contra
+// GET /v1/ranking (ArenaRankingService, sin lógica nueva -ver
+// backend/app/Http/Controllers/Api/RankingController.php). Mismo patrón
+// visual que la lista "Ranking" ya existente en arena.astro (misma clase
+// de fila, mismo resaltado del propio personaje), para no duplicar look
+// ni reinventar el layout de una lista que ya funciona.
 import AppShell from "../layouts/AppShell.astro";
-import PlaceholderView from "../components/PlaceholderView.astro";
+import GamePanel from "../components/ui/GamePanel.astro";
 ---
 
 <AppShell title="Ranking">
-	<PlaceholderView
-		icon="ranking"
-		title="Ranking"
-		description="El ranking de jugadores llega en una fase posterior del roadmap."
-	/>
+	<div class="mx-auto flex w-full max-w-2xl flex-col gap-4 py-4">
+		<p id="ranking-error" class="hidden border border-red px-3 py-2 text-sm text-red"></p>
+
+		<GamePanel title="Ranking" bodyClass="flex flex-col gap-1 p-5">
+			<p id="ranking-loading" class="m-0 text-sm text-muted">Cargando ranking…</p>
+			<p id="ranking-empty" class="m-0 hidden text-sm text-muted">Todavía no hay jugadores en el ranking.</p>
+			<div id="ranking-list" class="flex flex-col gap-1"></div>
+		</GamePanel>
+	</div>
 </AppShell>
+
+<script>
+	import { errorMessage, getRanking, type RankingStateDto } from "../game/net/ApiClient";
+
+	const errorEl = document.getElementById("ranking-error")!;
+	const loadingEl = document.getElementById("ranking-loading")!;
+	const emptyEl = document.getElementById("ranking-empty")!;
+	const listEl = document.getElementById("ranking-list")!;
+
+	function showError(message: string): void {
+		errorEl.textContent = message;
+		errorEl.classList.remove("hidden");
+	}
+
+	function clearError(): void {
+		errorEl.textContent = "";
+		errorEl.classList.add("hidden");
+	}
+
+	function renderRanking(state: RankingStateDto): void {
+		listEl.innerHTML = "";
+
+		if (state.ranking.length === 0) {
+			emptyEl.classList.remove("hidden");
+			return;
+		}
+		emptyEl.classList.add("hidden");
+
+		state.ranking.forEach((entry, index) => {
+			const row = document.createElement("div");
+			const isMe = state.me !== null && entry.character_id === state.me.character_id;
+			row.className = `flex items-center justify-between border border-outline-strong px-3 py-1.5 text-sm ${isMe ? "bg-cyan/10 text-cyan" : "text-text"}`;
+			row.innerHTML = `
+				<span>#${index + 1} ${entry.name} <span class="font-mono text-[0.65rem] text-muted">Nv.${entry.level}</span></span>
+				<span class="font-mono text-xs">${entry.wins}V - ${entry.losses}D</span>
+			`;
+			listEl.appendChild(row);
+		});
+	}
+
+	async function refresh(): Promise<void> {
+		clearError();
+		try {
+			const state = await getRanking();
+			loadingEl.classList.add("hidden");
+			renderRanking(state);
+		} catch (err) {
+			loadingEl.classList.add("hidden");
+			showError(errorMessage(err, "No se pudo cargar el ranking."));
+		}
+	}
+
+	refresh();
+</script>
