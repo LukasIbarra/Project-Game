@@ -4,9 +4,10 @@
 interface Props {
   text: string;
   variant?: "muted" | "pink" | "cyan" | "red";
+  id?: string;
 }
 
-const { text, variant = "muted" } = Astro.props;
+const { text, variant = "muted", id } = Astro.props;
 
 const styles: Record<string, string> = {
   muted: "text-muted border-outline-strong",
@@ -16,6 +17,6 @@ const styles: Record<string, string> = {
 };
 ---
 
-<span class={`inline-block border px-2 py-0.5 font-mono text-[0.65rem] uppercase tracking-wide ${styles[variant]}`}>
+<span id={id} class={`inline-block border px-2 py-0.5 font-mono text-[0.65rem] uppercase tracking-wide ${styles[variant]}`}>
   {text}
 </span>

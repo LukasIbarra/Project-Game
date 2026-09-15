@@ -5,9 +5,10 @@ interface Props {
   percent: number;
   color?: "pink" | "cyan" | "red";
   title?: string;
+  fillId?: string;
 }
 
-const { percent, color = "cyan", title } = Astro.props;
+const { percent, color = "cyan", title, fillId } = Astro.props;
 const clamped = Math.max(0, Math.min(100, percent));
 
 const fillClass: Record<string, string> = {
@@ -18,5 +19,5 @@ const fillClass: Record<string, string> = {
 ---
 
 <div class="h-[0.4rem] w-full border border-outline-strong bg-bg" title={title}>
-  <div class={fillClass[color]} style={`height:100%; width:${clamped}%`} />
+  <div id={fillId} class={fillClass[color]} style={`height:100%; width:${clamped}%`} />
 </div>

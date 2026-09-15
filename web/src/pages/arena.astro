@@ -96,6 +96,7 @@ import GameView from "../components/game/GameView.astro";
 		type CombatLogDto,
 	} from "../game/net/ApiClient";
 	import type { BattleScene } from "../game/scenes/BattleScene";
+	import { refreshPlayerState } from "../game/state/playerState";
 
 	const errorEl = document.getElementById("arena-error")!;
 	const mainViewEl = document.getElementById("arena-main")!;
@@ -348,6 +349,11 @@ import GameView from "../components/game/GameView.astro";
 				battleResultEl.classList.remove("hidden");
 				battleResultEl.classList.add("flex");
 				battleResultEl.scrollIntoView({ behavior: "smooth", block: "center" });
+
+				// Fase 11: el combate ya cambió nivel/exp/monedas server-side -
+				// refrescamos el HUD acá para que se vea al instante, sin
+				// esperar a que el jugador navegue a otra página.
+				refreshPlayerState().catch(() => {});
 			});
 		}, 100);
 	}

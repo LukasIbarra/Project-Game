@@ -3,18 +3,16 @@
 // divisores finos, en vez de una fila plana de elementos-. Sigue siendo
 // HTML/CSS puro (Tailwind + theme.css), fuera del canvas de Phaser.
 //
-// Nivel, experiencia y recursos siguen siendo MOCK explícito (ver
-// src/data/mockPlayerProgress.ts) -esos sistemas no existen todavía-.
-// Las monedas SÍ son reales desde F8 (character.coins vía
-// ApiClient.getCharacter()), mismo motivo por el que el nombre real
-// requiere JS de cliente: depende del token en localStorage.
+// Fase 11: nivel/experiencia/monedas son 100% reales, vía
+// game/state/playerState.ts (fuente única: Backend -> ApiClient -> este
+// módulo -> HUD/Inicio). El nombre real requiere JS de cliente aparte
+// (me()) porque depende del token en localStorage, igual que antes.
 import GameBadge from "../ui/GameBadge.astro";
 import GameButton from "../ui/GameButton.astro";
 import Icon from "../ui/Icon.astro";
 import IconButton from "../ui/IconButton.astro";
 import ProgressBar from "../ui/ProgressBar.astro";
 import ResourceCounter from "../ui/ResourceCounter.astro";
-import { MOCK_PLAYER_PROGRESS } from "../../data/mockPlayerProgress";
 ---
 
 <header class="game-panel m-2 flex items-center gap-4 px-3 py-2">
@@ -33,16 +31,15 @@ import { MOCK_PLAYER_PROGRESS } from "../../data/mockPlayerProgress";
     </div>
     <div class="flex min-w-32 flex-col gap-1">
       <span id="hud-name" class="truncate text-sm text-text">Cargando…</span>
-      <ProgressBar percent={MOCK_PLAYER_PROGRESS.expPercent} color="cyan" title="Experiencia (demo)" />
+      <ProgressBar percent={0} color="cyan" title="Experiencia" fillId="hud-exp-fill" />
     </div>
-    <GameBadge text={`Nv. ${MOCK_PLAYER_PROGRESS.level}`} variant="cyan" />
+    <GameBadge id="hud-level" text="Nv. --" variant="cyan" />
   </div>
 
   <div class="game-divider hidden sm:block" />
 
   <div class="hidden items-center gap-4 sm:flex">
     <ResourceCounter icon="coin" value="…" color="pink" title="Monedas" valueId="hud-coins" />
-    <ResourceCounter icon="resource" value={MOCK_PLAYER_PROGRESS.resources} color="cyan" title="Recursos (demo)" />
   </div>
 
   <div class="ml-auto flex items-center gap-2">
@@ -57,11 +54,19 @@ import { MOCK_PLAYER_PROGRESS } from "../../data/mockPlayerProgress";
 </header>
 
 <script>
-  import { me, logout, getCharacter } from "../../game/net/ApiClient";
+  import { me, logout } from "../../game/net/ApiClient";
+  import type { CharacterDto } from "../../game/net/ApiClient";
+  import {
+    PLAYER_STATE_CHANGED_EVENT,
+    expPercent,
+    refreshPlayerState,
+  } from "../../game/state/playerState";
 
   const nameEl = document.getElementById("hud-name")!;
   const avatarEl = document.getElementById("hud-avatar")!;
   const coinsEl = document.getElementById("hud-coins")!;
+  const levelEl = document.getElementById("hud-level")!;
+  const expFillEl = document.getElementById("hud-exp-fill") as HTMLElement | null;
 
   me()
     .then((user) => {
@@ -74,23 +79,27 @@ import { MOCK_PLAYER_PROGRESS } from "../../data/mockPlayerProgress";
       avatarEl.textContent = "?";
     });
 
-  function refreshCoins(): void {
-    getCharacter()
-      .then((character) => {
-        coinsEl.textContent = character.coins.toLocaleString();
-      })
-      .catch(() => {
-        coinsEl.textContent = "?";
-      });
+  function renderPlayerState(character: CharacterDto): void {
+    coinsEl.textContent = character.coins.toLocaleString();
+    levelEl.textContent = `Nv. ${character.level}`;
+    if (expFillEl) {
+      expFillEl.style.width = `${expPercent(character)}%`;
+    }
   }
 
-  refreshCoins();
+  refreshPlayerState()
+    .then(renderPlayerState)
+    .catch(() => {
+      coinsEl.textContent = "?";
+    });
 
-  // F8: /inventory y /crafting disparan este evento global después de
-  // vender/fabricar para que el saldo del HUD se vea actualizado al
-  // instante, sin esperar una recarga de página ni duplicar el fetch de
-  // coins en cada página (un solo lugar sabe pintar el HUD).
-  window.addEventListener("coins:changed", refreshCoins);
+  // Fase 11: fuente única de sincronización del estado del jugador -
+  // cualquier acción que cambie nivel/exp/monedas (combate, venta,
+  // crafting, futuras compras) dispara este mismo evento, sin que el HUD
+  // tenga que saber quién lo disparó.
+  window.addEventListener(PLAYER_STATE_CHANGED_EVENT, (event) => {
+    renderPlayerState((event as CustomEvent<CharacterDto>).detail);
+  });
 
   document.getElementById("hud-logout")?.addEventListener("click", async () => {
     await logout().catch(() => {});

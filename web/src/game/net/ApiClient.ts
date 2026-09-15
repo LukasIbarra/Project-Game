@@ -145,6 +145,9 @@ export interface CharacterDto {
   name: string;
   level: number;
   exp: number;
+  // Fase 11: reusa la misma fórmula que ya expone GET /v1/arena
+  // (CombatStatsService::xpToNextLevel) -nunca se recalcula en el cliente-.
+  exp_to_next_level: number;
   strength: number;
   agility: number;
   vitality: number;

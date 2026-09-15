@@ -44,6 +44,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		type CharacterEquipmentDto,
 		type InventoryItemDto,
 	} from "../game/net/ApiClient";
+	import { refreshPlayerState } from "../game/state/playerState";
 
 	const SLOTS = ["hair", "shirt", "pants", "shoes", "weapon", "accessory"] as const;
 	const SLOT_LABELS: Record<(typeof SLOTS)[number], string> = {
@@ -262,7 +263,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			confirmBtn.disabled = true;
 			try {
 				await sellItem(row.item.key, quantity);
-				window.dispatchEvent(new CustomEvent("coins:changed"));
+				await refreshPlayerState();
 				await refresh();
 			} catch (err) {
 				showError(errorMessage(err, "No se pudo vender el item."));

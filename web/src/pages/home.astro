@@ -2,10 +2,12 @@
 // Fase 4.1B: pantalla de inicio simple, sobre el sistema de paneles y
 // los íconos SVG nuevos. Sigue sin ser la Home definitiva del juego (eso
 // es contenido real, fuera de alcance) — solo una landing coherente
-// post-login. El bloque "Estado del personaje" reusa el MISMO mock que
-// el HUD (un solo archivo, ver src/data/mockPlayerProgress.ts) para no
-// inventar números distintos que puedan confundirse entre sí o con
-// datos reales.
+// post-login.
+//
+// Fase 11: "Estado del personaje" ahora usa datos reales (mismo módulo
+// game/state/playerState.ts que usa el HUD, un solo lugar que sabe pintar
+// nivel/XP/monedas). "Actividad reciente" sigue siendo mock a propósito
+// -eso es la Fase 12, todavía no implementada-.
 import AppShell from "../layouts/AppShell.astro";
 import GameButton from "../components/ui/GameButton.astro";
 import GameBadge from "../components/ui/GameBadge.astro";
@@ -13,7 +15,6 @@ import GamePanel from "../components/ui/GamePanel.astro";
 import Icon, { type IconName } from "../components/ui/Icon.astro";
 import ProgressBar from "../components/ui/ProgressBar.astro";
 import ResourceCounter from "../components/ui/ResourceCounter.astro";
-import { MOCK_PLAYER_PROGRESS } from "../data/mockPlayerProgress";
 
 const quickLinks: { href: string; label: string; icon: IconName }[] = [
   { href: "/house", label: "Casa", icon: "house" },
@@ -41,14 +42,12 @@ const MOCK_RECENT_ACTIVITY = ["Creaste tu cuenta", "Tu personaje base se cargó 
 		<div class="grid gap-4 sm:grid-cols-2">
 			<GamePanel title="Estado del personaje" bodyClass="flex flex-col gap-3 p-5">
 				<div class="flex items-center justify-between">
-					<GameBadge text={`Nv. ${MOCK_PLAYER_PROGRESS.level}`} variant="cyan" />
+					<GameBadge id="home-level" text="Nv. --" variant="cyan" />
 				</div>
-				<ProgressBar percent={MOCK_PLAYER_PROGRESS.expPercent} color="cyan" title="Experiencia (demo)" />
+				<ProgressBar percent={0} color="cyan" title="Experiencia" fillId="home-exp-fill" />
 				<div class="flex gap-4">
-					<ResourceCounter icon="coin" value={MOCK_PLAYER_PROGRESS.coins} color="pink" title="Monedas (demo)" />
-					<ResourceCounter icon="resource" value={MOCK_PLAYER_PROGRESS.resources} color="cyan" title="Recursos (demo)" />
+					<ResourceCounter icon="coin" value="…" color="pink" title="Monedas" valueId="home-coins" />
 				</div>
-				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Datos de ejemplo</span>
 			</GamePanel>
 
 			<GamePanel title="Actividad reciente" bodyClass="flex flex-col gap-2 p-5">
@@ -76,3 +75,30 @@ const MOCK_RECENT_ACTIVITY = ["Creaste tu cuenta", "Tu personaje base se cargó 
 		</GamePanel>
 	</div>
 </AppShell>
+
+<script>
+	import type { CharacterDto } from "../game/net/ApiClient";
+	import { PLAYER_STATE_CHANGED_EVENT, expPercent, refreshPlayerState } from "../game/state/playerState";
+
+	const levelEl = document.getElementById("home-level")!;
+	const expFillEl = document.getElementById("home-exp-fill") as HTMLElement | null;
+	const coinsEl = document.getElementById("home-coins")!;
+
+	function renderPlayerState(character: CharacterDto): void {
+		levelEl.textContent = `Nv. ${character.level}`;
+		if (expFillEl) {
+			expFillEl.style.width = `${expPercent(character)}%`;
+		}
+		coinsEl.textContent = character.coins.toLocaleString();
+	}
+
+	refreshPlayerState()
+		.then(renderPlayerState)
+		.catch(() => {
+			coinsEl.textContent = "?";
+		});
+
+	window.addEventListener(PLAYER_STATE_CHANGED_EVENT, (event) => {
+		renderPlayerState((event as CustomEvent<CharacterDto>).detail);
+	});
+</script>
