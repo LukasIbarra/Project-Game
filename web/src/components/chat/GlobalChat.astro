@@ -17,7 +17,24 @@ import GameButton from "../ui/GameButton.astro";
 import Icon from "../ui/Icon.astro";
 ---
 
-<section id="global-chat" class="game-panel game-panel--notched m-2 ml-0 flex w-64 shrink-0 flex-col min-h-0 max-h-full">
+<!-- Mobile UX: en desktop (md+) es exactamente el mismo panel lateral de
+     siempre -sin cambios de comportamiento-. Por debajo de md arranca
+     "hidden" (cerrado por defecto, cero espacio reservado, no empuja el
+     <main>) y el mismo botón de chat del HUD lo abre como drawer flotante
+     -ver script: initGlobalChat() decide en el momento del click si
+     corresponde el colapso a riel de escritorio o el abrir/cerrar de
+     mobile, según el viewport actual-. El backdrop solo existe para poder
+     cerrar tocando afuera; en desktop nunca se muestra. -->
+<div
+  id="global-chat-backdrop"
+  class="fixed inset-0 z-30 hidden bg-black/70 md:hidden"
+  aria-hidden="true"
+></div>
+
+<section
+  id="global-chat"
+  class="game-panel game-panel--notched hidden min-h-0 max-h-full flex-col md:m-2 md:ml-0 md:flex md:w-64 md:shrink-0"
+>
   <header class="game-panel__header text-cyan shrink-0">
     <span id="global-chat-title">Chat Global</span>
     <button
@@ -61,7 +78,18 @@ import Icon from "../ui/Icon.astro";
   const POLL_INTERVAL_MS = 2500;
   const NEAR_BOTTOM_PX = 24;
 
+  // Mismo breakpoint "md" que ya usa Tailwind acá (ver clases del
+  // <section>) -por debajo de esto el panel arranca "hidden" y el toggle
+  // pasa a abrir/cerrar un drawer en vez de colapsar a riel.
+  const MOBILE_BREAKPOINT_PX = 768;
+  const MOBILE_OPEN_CLASSES = ["flex", "fixed", "inset-x-3", "top-16", "bottom-20", "z-40"];
+
+  function isMobileViewport(): boolean {
+    return window.innerWidth < MOBILE_BREAKPOINT_PX;
+  }
+
   const container = document.getElementById("global-chat")!;
+  const backdrop = document.getElementById("global-chat-backdrop")!;
 
   // Guard contra doble-inicialización: si este script llegara a correr
   // dos veces sobre el mismo DOM (ej. una futura navegación client-side),
@@ -215,9 +243,45 @@ import Icon from "../ui/Icon.astro";
       }
     });
 
-    // Colapsa a un riel angosto (solo el header) en vez de ocultar sin
-    // liberar el espacio -así el contenido central puede usarlo.
+    // Mobile UX: abre/cierra el drawer completo (el panel entero estaba
+    // "hidden" por defecto). Nunca toca w-10/w-64 -esas clases son
+    // exclusivamente el colapso a riel de escritorio, de abajo-.
+    function isMobileChatOpen(): boolean {
+      return container.classList.contains("fixed");
+    }
+
+    function openMobileChat(): void {
+      container.classList.remove("hidden");
+      container.classList.add(...MOBILE_OPEN_CLASSES);
+      backdrop.classList.remove("hidden");
+      toggle.setAttribute("aria-label", "Cerrar chat");
+    }
+
+    function closeMobileChat(): void {
+      container.classList.add("hidden");
+      container.classList.remove(...MOBILE_OPEN_CLASSES);
+      backdrop.classList.add("hidden");
+      toggle.setAttribute("aria-label", "Abrir chat");
+    }
+
+    backdrop.addEventListener("click", closeMobileChat);
+
+    // Mismo botón, dos comportamientos según el viewport en el momento del
+    // click (no una media query fija en JS): en mobile abre/cierra el
+    // drawer entero; en desktop conserva el colapso a riel angosto de
+    // siempre, sin ningún cambio de comportamiento.
     toggle.addEventListener("click", () => {
+      if (isMobileViewport()) {
+        if (isMobileChatOpen()) {
+          closeMobileChat();
+        } else {
+          openMobileChat();
+        }
+        return;
+      }
+
+      // Colapsa a un riel angosto (solo el header) en vez de ocultar sin
+      // liberar el espacio -así el contenido central puede usarlo.
       const collapsed = container.classList.toggle("w-10");
       container.classList.toggle("w-64", !collapsed);
       body.classList.toggle("hidden", collapsed);

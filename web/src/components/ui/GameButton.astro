@@ -10,9 +10,10 @@ interface Props {
   color?: "pink" | "cyan" | "red";
   type?: "button" | "submit";
   id?: string;
+  ariaLabel?: string;
 }
 
-const { href, variant = "outline", color = "cyan", type = "button", id } = Astro.props;
+const { href, variant = "outline", color = "cyan", type = "button", id, ariaLabel } = Astro.props;
 
 const styles: Record<string, string> = {
   "outline:pink": "border-2 border-pink text-pink hover:bg-pink hover:text-bg",
@@ -28,11 +29,11 @@ const classes = `inline-flex items-center justify-center gap-2 px-4 py-2 font-mo
 
 {
   href ? (
-    <a href={href} class={classes}>
+    <a href={href} class={classes} aria-label={ariaLabel}>
       <slot />
     </a>
   ) : (
-    <button type={type} id={id} class={classes}>
+    <button type={type} id={id} class={classes} aria-label={ariaLabel}>
       <slot />
     </button>
   )

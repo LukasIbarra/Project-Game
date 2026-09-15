@@ -15,21 +15,29 @@ import ProgressBar from "../ui/ProgressBar.astro";
 import ResourceCounter from "../ui/ResourceCounter.astro";
 ---
 
-<header class="game-panel m-2 flex items-center gap-4 px-3 py-2">
-  <div class="grid h-8 w-8 shrink-0 place-items-center border-2 border-outline-strong font-display text-[0.6rem] text-cyan">
+<!-- Mobile UX: prioridad explícita nivel/XP/monedas (el resto se compacta,
+     nunca se oculta del todo). El logo decorativo y el primer separador
+     desaparecen recién por debajo de sm -no aportan información-; nombre
+     se acorta en vez de ocultarse (sigue siendo real e identificable);
+     monedas deja de estar oculto en mobile (antes "hidden sm:flex" -
+     justamente lo contrario de lo que pide esta fase-); "Salir" pasa a
+     ícono-solo en mobile con aria-label, mismo criterio que el resto de
+     los IconButton del HUD. -->
+<header class="game-panel m-2 flex items-center gap-2 px-2 py-2 sm:gap-4 sm:px-3">
+  <div class="hidden h-8 w-8 shrink-0 place-items-center border-2 border-outline-strong font-display text-[0.6rem] text-cyan sm:grid">
     ◆
   </div>
 
-  <div class="game-divider" />
+  <div class="game-divider hidden sm:block" />
 
   <div class="flex min-w-0 items-center gap-2">
     <div
       id="hud-avatar"
-      class="grid h-9 w-9 shrink-0 place-items-center border-2 border-outline-strong bg-surface-2 font-mono font-bold text-pink"
+      class="grid h-8 w-8 shrink-0 place-items-center border-2 border-outline-strong bg-surface-2 font-mono font-bold text-pink sm:h-9 sm:w-9"
     >
       ?
     </div>
-    <div class="flex min-w-32 flex-col gap-1">
+    <div class="flex min-w-0 max-w-24 flex-col gap-1 sm:max-w-none sm:min-w-32">
       <span id="hud-name" class="truncate text-sm text-text">Cargando…</span>
       <ProgressBar percent={0} color="cyan" title="Experiencia" fillId="hud-exp-fill" />
     </div>
@@ -38,17 +46,17 @@ import ResourceCounter from "../ui/ResourceCounter.astro";
 
   <div class="game-divider hidden sm:block" />
 
-  <div class="hidden items-center gap-4 sm:flex">
+  <div class="flex items-center gap-2 sm:gap-4">
     <ResourceCounter icon="coin" value="…" color="pink" title="Monedas" valueId="hud-coins" />
   </div>
 
-  <div class="ml-auto flex items-center gap-2">
+  <div class="ml-auto flex items-center gap-1.5 sm:gap-2">
     <IconButton id="hud-chat-toggle" icon="chat" label="Chat global" variant="cyan" />
     <IconButton id="hud-notifications" icon="bell" label="Notificaciones (demo)" variant="red" />
-    <div class="game-divider" />
-    <GameButton id="hud-logout" variant="outline" color="red">
+    <div class="game-divider hidden sm:block" />
+    <GameButton id="hud-logout" variant="outline" color="red" ariaLabel="Salir">
       <Icon name="logout" class="h-3.5 w-3.5" />
-      Salir
+      <span class="hidden sm:inline">Salir</span>
     </GameButton>
   </div>
 </header>
