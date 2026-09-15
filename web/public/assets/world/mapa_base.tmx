@@ -20,18 +20,38 @@
  <tileset firstgid="11177" source="../../Downloads/Rocks.tsx"/>
  <tileset firstgid="11424" source="../../Downloads/Idle-Sheet.tsx"/>
  <objectgroup id="16" name="Capa de Objetos 1">
-  <object id="6" name="edificio" type="collision" x="510.667" y="253.333">
+  <!-- Fase 15: type="navigation" + properties.targetPage -clave lógica,
+       el código la valida contra una lista blanca de rutas reales, nunca
+       el nombre del objeto-. "rio" queda "collision" sin cambios (no es
+       un punto de entrada). El Dojo ("edificio") todavía no tiene página
+       propia -pedido explícito de la fase- así que targetPage apunta a
+       "ranking" en su lugar. -->
+  <object id="6" name="edificio" type="navigation" x="510.667" y="253.333">
+   <properties>
+    <property name="targetPage" value="ranking"/>
+   </properties>
    <polygon points="0,0 0.666667,176 306.667,176 307.333,-1.33333"/>
   </object>
-  <object id="7" name="casa" type="collision" x="209.333" y="242">
+  <object id="7" name="casa" type="navigation" x="209.333" y="242">
+   <properties>
+    <property name="targetPage" value="house"/>
+   </properties>
    <polygon points="0,0 -2,106 14.6667,108.667 13.3333,124.667 78.6667,126 78,108 140,108.667 142,0"/>
   </object>
-  <object id="10" name="hotel" type="collision" x="38" y="465" width="248" height="179"/>
+  <object id="10" name="hotel" type="navigation" x="38" y="465" width="248" height="179">
+   <properties>
+    <property name="targetPage" value="arena"/>
+   </properties>
+  </object>
   <object id="12" x="947" y="788">
    <polygon points="0,0 60,-2 61,11 -1,8"/>
   </object>
   <object id="14" name="rio" type="collision" x="947" y="588" width="332" height="212"/>
-  <object id="15" name="pet" type="collision" x="1028" y="95" width="145" height="156"/>
+  <object id="15" name="pet" type="navigation" x="1028" y="95" width="145" height="156">
+   <properties>
+    <property name="targetPage" value="pet"/>
+   </properties>
+  </object>
   <object id="16" x="810" y="163">
    <point/>
   </object>

@@ -14,18 +14,39 @@ export interface StructureInfo {
   x: number;
   y: number;
   radius: number;
+  // Fase 15: ruta real ya validada (o null si el objeto no navega a
+  // ningún lado -sin `targetPage`, o con un valor no reconocido-). Quien
+  // consuma esto (WorldScene) nunca vuelve a mirar el nombre del objeto.
+  targetPage: string | null;
 }
 
-// Los 5 objetos con `type="collision"` del mapa tienen nombre propio.
-// Los que además son puntos de entrada reales (Dojo/Casa/Arena/Mascota,
-// pedidos por esta fase) se listan acá; "rio" queda como obstáculo sin
-// interacción (agua, no se puede entrar).
+// Solo para el texto del prompt ("E — Entrar a X") -cosmético, no decide
+// destino-. Si un objeto no tiene nombre reconocido acá, se muestra su
+// `name` crudo o un genérico; la navegación en sí nunca depende de esto.
 const STRUCTURE_LABELS: Record<string, string> = {
   edificio: "Dojo",
   casa: "Casa",
   hotel: "Arena",
   pet: "Mascota",
 };
+
+// Fase 15: única lista blanca de destinos reales. La metadata de Tiled
+// (`properties.targetPage`) manda una CLAVE lógica, nunca una ruta a
+// mano; agregar un destino nuevo es una entrada acá, nada en WorldScene.
+// El Dojo todavía no tiene página propia (pedido explícito de la fase) —
+// "ranking" es su destino real por ahora, no se creó /dojo.
+const TARGET_PAGES: Record<string, string> = {
+  house: "/house",
+  arena: "/arena",
+  pet: "/pet",
+  ranking: "/ranking",
+};
+
+interface TiledObjectProperty {
+  name: string;
+  type?: string;
+  value: string;
+}
 
 interface TiledObject {
   id: number;
@@ -37,6 +58,19 @@ interface TiledObject {
   height?: number;
   polygon?: { x: number; y: number }[];
   point?: boolean;
+  properties?: TiledObjectProperty[];
+}
+
+function stringProperty(obj: TiledObject, propertyName: string): string | undefined {
+  return obj.properties?.find((p) => p.name === propertyName)?.value;
+}
+
+// Único lugar donde `targetPage` (string suelto de Tiled) se convierte en
+// una ruta real -o en null, nunca en una navegación adivinada-.
+function resolveTargetPage(obj: TiledObject): string | null {
+  const key = stringProperty(obj, "targetPage");
+  if (!key) return null;
+  return TARGET_PAGES[key] ?? null;
 }
 
 function objectBoundingBox(obj: TiledObject): AABB {
@@ -81,14 +115,18 @@ export class WorldMap {
       if (box.width <= 0 || box.height <= 0) continue;
       this.collidables.push(box);
 
-      const label = obj.name ? STRUCTURE_LABELS[obj.name] : undefined;
-      if (label) {
+      // Fase 15: la inclusión como punto de entrada interactuable depende
+      // de `type="navigation"` (metadata formal de Tiled) — nunca de que
+      // el nombre matchee algo a mano. El nombre solo aporta el texto
+      // cosmético del prompt, con fallback si no hay uno mapeado.
+      if (obj.type === "navigation") {
         this.structures.push({
-          id: obj.name!,
-          label,
+          id: obj.name ?? `structure-${obj.id}`,
+          label: (obj.name && STRUCTURE_LABELS[obj.name]) || obj.name || "Entrada",
           x: box.x + box.width / 2,
           y: box.y + box.height / 2,
           radius: Math.max(box.width, box.height) / 2 + 40,
+          targetPage: resolveTargetPage(obj),
         });
       }
     }

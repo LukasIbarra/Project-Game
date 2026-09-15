@@ -143,9 +143,17 @@ export class WorldScene extends Phaser.Scene {
     }
 
     if (this.activeStructure) {
-      // Fase 5: sin sistemas reales todavía detrás de estas entradas -solo
-      // se deja registrado el punto de entrada, como pide esta fase.
-      console.log(`[Mundo] Interacción con estructura: ${this.activeStructure.id}`);
+      // Fase 15: la navegación depende únicamente de `targetPage`, ya
+      // resuelto y validado en WorldMap (metadata formal de Tiled, nunca
+      // el nombre del objeto). Sin `targetPage` reconocido, mismo
+      // fallback de antes -nunca un crash ni una navegación inventada-.
+      // Navegación completa (no hay router client-side en este proyecto),
+      // mismo patrón que el resto de la app (ej. logout en Hud.astro).
+      const targetPage = this.activeStructure.targetPage;
+      if (targetPage) {
+        window.location.href = targetPage;
+        return;
+      }
       this.ui.showDialogue(this.activeStructure.label, ["Próximamente."]);
     }
   }

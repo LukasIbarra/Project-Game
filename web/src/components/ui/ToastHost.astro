@@ -1,0 +1,138 @@
+---
+// Fase 14: host único de Toast Notifications, montado una sola vez en
+// AppShell.astro (mismo criterio que GlobalChat/Hud: un solo lugar sabe
+// pintar esto, cualquier página solo dispara `toast.success(...)` desde
+// game/state/toast.ts sin conocer este componente).
+//
+// Los 4 <template> de abajo existen para poder usar el <Icon> real (Fase
+// 4.1B/auditoría de iconos) desde el script de cliente sin duplicar los
+// paths SVG a mano acá: Astro renderiza el <Icon> una vez en el server,
+// el script solo clona el contenido ya resuelto.
+import Icon from "./Icon.astro";
+---
+
+<template id="toast-icon-success"><Icon name="toast-success" class="h-4 w-4" /></template>
+<template id="toast-icon-error"><Icon name="toast-error" class="h-4 w-4" /></template>
+<template id="toast-icon-info"><Icon name="toast-info" class="h-4 w-4" /></template>
+<template id="toast-icon-warning"><Icon name="toast-warning" class="h-4 w-4" /></template>
+
+<!-- Mobile UX (Fase Mobile, ver reporte): "bottom-20" en mobile coincide
+     con el padding inferior que ya reserva <main> para la navbar fija -el
+     toast nunca queda tapado por ella-. Por encima de md, la columna de
+     NavBar (w-48+m-2) y GlobalChat (w-64+m-2) son estáticas -no flotantes-,
+     así que alcanza con anclar el host a la izquierda del hueco entre
+     ambas (left-56) para nunca superponerse con ninguna de las dos. -->
+<div
+  id="toast-host"
+  class="pointer-events-none fixed inset-x-2 bottom-20 z-50 flex flex-col gap-2 md:inset-x-auto md:bottom-4 md:left-56 md:w-80"
+  role="region"
+  aria-live="polite"
+  aria-atomic="false"
+  aria-label="Notificaciones"
+>
+</div>
+
+<style>
+  /* Mismo criterio de motion que la bitácora de expedición (F7.1.1): fade +
+     translateY corto, respeta prefers-reduced-motion. */
+  .toast-item {
+    opacity: 0;
+    transform: translateY(6px);
+    transition:
+      opacity 180ms ease-out,
+      transform 180ms ease-out;
+  }
+  .toast-item.toast-item--visible {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .toast-item {
+      transition-duration: 1ms;
+    }
+  }
+</style>
+
+<script>
+  import { NOTIFY_EVENT, type ToastDetail, type ToastType } from "../../game/state/toast";
+
+  const DEFAULT_DURATION_MS = 4000;
+  const EXIT_TRANSITION_FALLBACK_MS = 300;
+
+  // Clases completas a propósito (nunca `border-l-${color}` interpolado) —
+  // mismo criterio ya documentado en GameButton.astro: el escaneo estático
+  // de Tailwind necesita ver el string literal para generar el CSS.
+  const ACCENT: Record<ToastType, { border: string; text: string }> = {
+    success: { border: "border-l-cyan", text: "text-cyan" },
+    warning: { border: "border-l-pink", text: "text-pink" },
+    error: { border: "border-l-red", text: "text-red" },
+    info: { border: "border-l-outline-strong", text: "text-muted" },
+  };
+
+  const host = document.getElementById("toast-host")!;
+
+  function cloneIcon(type: ToastType | "close"): Node {
+    // "close" reusa el mismo glifo "X" del tipo error -no hace falta un
+    // quinto ícono solo para el botón de cerrar.
+    const templateId = type === "close" ? "toast-icon-error" : `toast-icon-${type}`;
+    const tpl = document.getElementById(templateId) as HTMLTemplateElement | null;
+    return tpl ? tpl.content.cloneNode(true) : document.createTextNode("");
+  }
+
+  function dismiss(el: HTMLElement): void {
+    el.classList.remove("toast-item--visible");
+    let removed = false;
+    const remove = () => {
+      if (removed) return;
+      removed = true;
+      el.remove();
+    };
+    el.addEventListener("transitionend", remove, { once: true });
+    // Red de seguridad: en algunos navegadores, con prefers-reduced-motion
+    // (transición casi instantánea) "transitionend" puede no disparar de
+    // forma confiable -esto garantiza que el toast igual se limpia-.
+    window.setTimeout(remove, EXIT_TRANSITION_FALLBACK_MS);
+  }
+
+  function showToast(detail: ToastDetail): void {
+    const accent = ACCENT[detail.type] ?? ACCENT.info;
+
+    const el = document.createElement("div");
+    el.className = `toast-item pointer-events-auto game-panel flex items-start gap-2 border-l-4 ${accent.border} px-3 py-2`;
+
+    const iconWrap = document.createElement("span");
+    iconWrap.className = `mt-0.5 shrink-0 ${accent.text}`;
+    iconWrap.appendChild(cloneIcon(detail.type));
+    el.appendChild(iconWrap);
+
+    const text = document.createElement("p");
+    text.className = "m-0 min-w-0 flex-1 break-words text-sm text-text";
+    text.textContent = detail.message;
+    el.appendChild(text);
+
+    let timer: ReturnType<typeof window.setTimeout>;
+
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "shrink-0 text-muted hover:text-text";
+    closeBtn.setAttribute("aria-label", "Cerrar notificación");
+    closeBtn.appendChild(cloneIcon("close"));
+    closeBtn.addEventListener("click", () => {
+      window.clearTimeout(timer);
+      dismiss(el);
+    });
+    el.appendChild(closeBtn);
+
+    host.appendChild(el);
+    // Un frame después de insertar -si se agrega la clase "visible" en el
+    // mismo tick, el navegador puede colapsar el estado inicial y nunca
+    // animar la entrada-.
+    requestAnimationFrame(() => el.classList.add("toast-item--visible"));
+
+    timer = window.setTimeout(() => dismiss(el), detail.durationMs ?? DEFAULT_DURATION_MS);
+  }
+
+  window.addEventListener(NOTIFY_EVENT, (event) => {
+    showToast((event as CustomEvent<ToastDetail>).detail);
+  });
+</script>

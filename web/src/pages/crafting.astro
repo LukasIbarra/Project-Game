@@ -59,6 +59,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		type InventoryItemDto,
 		type RecipeDto,
 	} from "../game/net/ApiClient";
+	import { toast } from "../game/state/toast";
 
 	const errorEl = document.getElementById("crafting-error")!;
 	const coinsEl = document.getElementById("crafting-coins")!;
@@ -215,9 +216,15 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			craftBtn.disabled = true;
 			try {
 				await craftRecipe(recipe.key);
+				toast.success(`Fabricaste ${recipe.result.icon ? recipe.result.icon + " " : ""}${recipe.result.name} ×${recipe.result_quantity}`);
 				await refresh();
 			} catch (err) {
-				showError(errorMessage(err, "No se pudo fabricar esta receta."));
+				// Fase 14: esto es feedback de UNA acción puntual (se clickeó
+				// "Craftear" y falló) -no un fallo de carga de página-, así que
+				// pasa a toast en vez del banner de arriba (ese banner queda
+				// reservado para cuando falla cargar TODA la pantalla, ver
+				// init()/refresh() más abajo, sin tocar).
+				toast.error(errorMessage(err, "No se pudo fabricar esta receta."));
 				craftBtn.disabled = !canCraft(recipe);
 			}
 		});

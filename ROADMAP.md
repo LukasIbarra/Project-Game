@@ -38,8 +38,8 @@ fijadas para todo el roadmap:
 | **11** | **Player State real** | ✅ **Completada** |
 | **12** | **Activity Feed** | ✅ **Completada** |
 | **13** | **Ranking real** | ✅ **Completada** |
-| 14 | Notificaciones toast | ⬜ Pendiente |
-| 15 | Navegación real desde el Mundo | ⬜ Pendiente |
+| **14** | **Notificaciones toast** | ✅ **Completada** |
+| **15** | **Navegación real desde el Mundo** | ✅ **Completada** |
 | 16 | Tienda | ⬜ Pendiente |
 | 17 | Historial de Combates + Ataques Recibidos | ⬜ Pendiente |
 | 18 | Presencia (jugadores conectados) | ⬜ Pendiente |
@@ -112,7 +112,7 @@ no hacer notificación en tiempo real de esto (es Fase 14).
 
 ---
 
-### FASE 14 — Notificaciones toast
+### FASE 14 — Notificaciones toast ✅ COMPLETADA
 
 **Objetivo:** toasts no invasivos para eventos importantes (+XP, level up,
 mascota regresó, logro, etc.).
@@ -124,7 +124,7 @@ es la Fase 12).
 
 ---
 
-### FASE 15 — Navegación real desde el Mundo + formalización mínima de Tiled
+### FASE 15 — Navegación real desde el Mundo + formalización mínima de Tiled ✅ COMPLETADA
 
 **Objetivo:** que tocar Dojo/Casa/Arena/Mascota en `/play` navegue de verdad,
 leyendo una propiedad formal de Tiled (`type`/`class` + `targetPage`) en vez
@@ -458,3 +458,115 @@ alcance de Fase 13):**
   tenerlo presente al verificar manualmente cualquier fase futura recién
   implementada: esperar un poco más en el primer request de una página
   nueva antes de asumir que algo no funciona.
+
+### Fase 14 — Notificaciones toast — ✅ Completada
+
+**Implementado:**
+- `web/src/game/state/toast.ts` (nuevo): store mínimo, mismo mecanismo que
+  `playerState.ts` (Fase 11) — `CustomEvent("notify")` en `window`, sin
+  librería de estado nueva. API ergonómica `toast.success/error/info/
+  warning(message, durationMs?)` pedida por la fase, implementada como
+  wrapper fino sobre el evento (nunca una segunda fuente de verdad).
+- `web/src/components/ui/ToastHost.astro` (nuevo), montado una vez en
+  `AppShell.astro`: escucha `notify`, renderiza cada toast como un
+  `game-panel` con acento de color + ícono (nunca solo color), auto-dismiss
+  (4s por defecto, configurable por toast), cierre manual, múltiples toasts
+  coexistiendo sin pisarse, animación fade+translateY respetando
+  `prefers-reduced-motion` (mismo criterio que la bitácora de expedición,
+  F7.1.1).
+- `Icon.astro` gana 4 íconos SVG nuevos (`toast-success/error/info/
+  warning`) — ningún ícono existente representaba estos conceptos; se
+  agregaron como línea SVG (mismo criterio que chat/bell/chevrons: UI pura,
+  no pixel-art) en vez de reusar uno ajeno o depender solo del color.
+- Integraciones reales (las únicas 3 acciones que eran 100% silenciosas en
+  éxito, confirmado por auditoría antes de tocar nada): crafting exitoso
+  (`crafting.astro`), venta exitosa (`inventory.astro`), reclamo de
+  expedición exitoso (`pet.astro`) — las 3 ganan toast de éxito Y migran su
+  toast de error puntual (antes iba al banner de la página). Los banners
+  inline de "no se pudo CARGAR la página" (arena/inventory/crafting/pet/
+  ranking) quedaron sin tocar a propósito — son un estado persistente de
+  fallo de carga, no feedback transitorio de una acción ya ejecutada.
+- Deliberadamente NO integrado: resultado de combate en Arena (ya tiene su
+  propio panel de resultado dedicado, incluido level-up — un toast ahí
+  sería ruido redundante); equipar/desequipar y colocar/mover/retirar
+  muebles (ya tienen confirmación visual inmediata propia — cambio de
+  label del botón, ghost de Phaser).
+- Responsive: en mobile el host queda anclado arriba de la navbar inferior
+  fija (mismo `pb-20`/offset que ya reserva `AppShell.astro` para ella,
+  Mobile UX) y con z-index por encima del chat drawer -un toast nunca
+  queda oculto detrás de ninguno de los dos, verificado con el drawer
+  abierto-. En desktop se ancla al hueco entre NavBar y GlobalChat
+  (estáticos, sin flotar), sin superponerse a ninguno.
+
+**Deuda/observaciones detectadas, no resueltas en esta fase:**
+- Este proyecto no tiene ningún framework de test frontend instalado
+  (ni Vitest ni `@playwright/test`) — toda la verificación de Playwright de
+  esta fase (y de todas las anteriores) fue ad-hoc vía script, nunca un
+  archivo de test persistido. Instalar `@playwright/test` para tener una
+  suite real de E2E queda como decisión pendiente del dueño del proyecto
+  (no se instaló nada nuevo sin confirmar primero, tal como se pidió).
+- `ChatTest.php` sigue con sus 2 fallos preexistentes ya documentados en el
+  cierre de Fase 13 (datos reales acumulados en `chat_messages`) — no
+  relacionado con esta fase, backend no se tocó en absoluto.
+
+### Fase 15 — Navegación World → Pages — ✅ Completada
+
+**Implementado:**
+- `web/public/assets/world/mapa_base.json` (artefacto real que carga
+  Phaser) y `mapa_base.tmx` (fuente de diseño, mantenida en sync) ganan
+  metadata formal en los 4 objetos de entrada: `type` pasa de `"collision"`
+  genérico a `"navigation"`, más `properties: [{name:"targetPage",
+  value:"<clave>"}]`. `"rio"` (obstáculo, no es punto de entrada) queda
+  con `type="collision"` sin cambios.
+- `WorldMap.ts`: el `TiledObject` interno ahora tipa `properties`; nueva
+  `TARGET_PAGES` (única lista blanca clave→ruta real) y
+  `resolveTargetPage()`. La inclusión de un objeto en `structures[]` pasa
+  a depender de `obj.type === "navigation"` (antes: de que `obj.name`
+  matcheara `STRUCTURE_LABELS`). `STRUCTURE_LABELS` se conserva, pero
+  ahora es puramente cosmético (texto del prompt "E — Entrar a X"), con
+  fallback si el nombre cambia — nunca decide destino.
+- `WorldScene.ts`: `handleInteractKey()` navega con
+  `window.location.href = activeStructure.targetPage` cuando existe;
+  mismo fallback "Próximamente." de antes si no hay `targetPage`
+  reconocido (objeto sin la propiedad, o con un valor no mapeado).
+- Verificado que Phaser pasa `type`/`properties` sin transformar (leído
+  directo del código fuente de `ParseObject.js`, `commonObjectProps`) —
+  no hay ninguna capa intermedia que pudiera renombrar/perder estos
+  campos.
+
+**Destinos reales usados (ninguno inventado):**
+`casa → /house`, `hotel → /arena` (Arena), `pet → /pet` (Mascota),
+`edificio → /ranking` (Dojo — sin página propia todavía, pedido explícito
+del dueño del proyecto: funciona como acceso al Ranking, no se creó
+`/dojo`).
+
+**Validación:**
+- Casa, Arena y Dojo: verificados con **gameplay real completo**
+  (caminar con el jugador real hasta la estructura + presionar E +
+  confirmar la URL final) vía Playwright — los 3 navegaron correctamente
+  al primer intento.
+- Mascota: no logré scriptear un camino de movimiento confiable hasta ese
+  extremo del mapa dentro de un esfuerzo razonable (headless, sin mapa de
+  colisiones exhaustivo a mano) — verificado en cambio leyendo el estado
+  real resuelto en runtime (`map.structures`, con un `console.log`
+  temporal agregado y retirado en el momento, nunca deja rastro en el
+  código final): `{"id":"pet","targetPage":"/pet",...}` correcto, mismo
+  código de interacción ya probado en los otros 3. Confianza alta pero
+  no es una prueba de gameplay 100% real como las otras tres — ver reporte
+  de la tarea para el detalle completo.
+- Casos "sin targetPage" e "inválido" verificados por lectura de código
+  (`resolveTargetPage` devuelve `null` en ambos casos, mismo fallback sin
+  crash) — no hay ningún objeto real en el mapa hoy sin `targetPage` para
+  probarlo en vivo.
+
+**Deuda/observaciones detectadas, no resueltas en esta fase:**
+- El Dojo sigue sin página propia (decisión explícita del dueño del
+  proyecto para esta fase, no una deuda involuntaria) — cuando exista,
+  el cambio es una sola línea en `TARGET_PAGES` (`edificio` pasaría a
+  apuntar a una clave nueva).
+- No existe ningún conversor `.tmx → .json` reutilizable en el repo (se
+  usó uno puntual y descartado en Fase 5) — mantener ambos archivos en
+  sync fue manual esta vez. Si el mapa se vuelve a editar en Tiled y se
+  reexporta, hay que reaplicar a mano cualquier `properties` agregado acá
+  si el reexport no las trae (dependiendo de si se edita el `.tmx` real en
+  Tiled o se regenera desde cero).

@@ -111,6 +111,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		type ItemDto,
 		type Pet,
 	} from "../game/net/ApiClient";
+	import { toast } from "../game/state/toast";
 
 	const errorEl = document.getElementById("pet-error")!;
 	const nameEl = document.getElementById("pet-name")!;
@@ -435,10 +436,19 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	claimButton.addEventListener("click", async () => {
 		claimButton.disabled = true;
 		try {
-			await claimPetExpedition();
+			const { loot } = await claimPetExpedition();
+			const totalQty = loot.reduce((sum, entry) => sum + entry.quantity, 0);
+			toast.success(
+				totalQty > 0
+					? `Tu mascota volvió con ${totalQty} objeto${totalQty === 1 ? "" : "s"}`
+					: "Tu mascota volvió sin objetos esta vez"
+			);
 			await refresh();
 		} catch (err) {
-			showError(messageFrom(err, "No se pudo reclamar la recompensa."));
+			// Fase 14: feedback de una acción puntual (se clickeó "Reclamar" y
+			// falló) -a toast, no al banner de arriba (ese sigue siendo
+			// exclusivo de "no se pudo cargar la mascota", ver init()).
+			toast.error(messageFrom(err, "No se pudo reclamar la recompensa."));
 			claimButton.disabled = false;
 		}
 	});

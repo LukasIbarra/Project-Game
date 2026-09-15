@@ -19,6 +19,12 @@
 // `coin_stack_unused.png`, nunca borrado-. Los tres nuevos salen
 // específicamente de `UI Icons 3` (icon62->home.png, icon61->pet.png,
 // icon7->coin.png).
+// Fase 14 (Toast Notifications): 4 íconos nuevos de UI pura -mismo criterio
+// que chat/bell/chevrons (línea SVG, no pixel-art: son indicadores de
+// estado de la interfaz, no conceptos RPG)-. Ningún ícono existente
+// representaba success/error/info/warning; se agregan acá en vez de
+// reusar uno ajeno (ej. "bell" para error) para no depender solo del color
+// como exige la fase.
 export type IconName =
   | "home"
   | "house"
@@ -34,7 +40,11 @@ export type IconName =
   | "coin"
   | "craft"
   | "chevron-down"
-  | "chevron-right";
+  | "chevron-right"
+  | "toast-success"
+  | "toast-error"
+  | "toast-info"
+  | "toast-warning";
 
 interface Props {
   name: IconName;
@@ -71,6 +81,10 @@ const paths: Partial<Record<IconName, string>> = {
   bell: "M12 3.5c-2 0-3.5 1.6-3.5 3.6v2.7c0 1-.4 2-1.1 2.8L6 14.5h12l-1.4-1.9a4.2 4.2 0 0 1-1.1-2.8V7.1c0-2-1.5-3.6-3.5-3.6Z M10 17.5a2 2 0 0 0 4 0",
   "chevron-down": "m6 9 6 6 6-6",
   "chevron-right": "m9 6 6 6-6 6",
+  "toast-success": "m5 12.5 4.5 4.5L19 7",
+  "toast-error": "M6 6 18 18 M18 6 6 18",
+  "toast-info": "M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Z M12 10.5v6 M12 7.5h.01",
+  "toast-warning": "M12 3.5 2.5 20h19L12 3.5Z M12 10v4 M12 17h.01",
 };
 
 const pixelSrc = PIXEL_ICONS[name];

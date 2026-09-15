@@ -14,6 +14,7 @@ import "../styles/theme.css";
 import Hud from "../components/hud/Hud.astro";
 import NavBar from "../components/nav/NavBar.astro";
 import GlobalChat from "../components/chat/GlobalChat.astro";
+import ToastHost from "../components/ui/ToastHost.astro";
 
 interface Props {
   title: string;
@@ -74,6 +75,8 @@ const { title } = Astro.props;
 			<GlobalChat />
 		</div>
 	</div>
+
+	<ToastHost />
 
 		<script>
 			import { isAuthenticated } from "../game/net/ApiClient";
