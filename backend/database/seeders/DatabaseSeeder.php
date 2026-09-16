@@ -41,6 +41,7 @@ class DatabaseSeeder extends Seeder
         // notaba porque esos 3 items ya estaban sembrados de antes-.
         $this->call(RoomFurnitureSeeder::class);
         $this->call(RecipeSeeder::class);
+        $this->call(ShopProductSeeder::class);
 
         $this->call(ArenaEquipmentSeeder::class);
         $this->call(PetSeeder::class);

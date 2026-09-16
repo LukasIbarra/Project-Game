@@ -144,6 +144,8 @@ const quickLinks: { href: string; label: string; icon: IconName }[] = [
 				return `💰 Vendiste ${p.quantity}x ${p.item_name} por ${p.coins_earned} monedas`;
 			case "crafting":
 				return `🔨 Fabricaste ${p.quantity}x ${p.result_item_name}`;
+			case "purchase":
+				return `🛒 Compraste ${p.quantity}x ${p.item_name} por ${p.coins_spent} monedas`;
 			default:
 				return "Actividad reciente";
 		}

@@ -347,6 +347,39 @@ export async function sellItem(itemKey: string, quantity: number): Promise<SellR
   });
 }
 
+// Fase 16: Tienda (primera versión, catálogo fijo sin rotación). Mismo
+// principio de siempre: el cliente solo pide "comprá item_key x quantity"
+// -el precio real vive en `shop_products` (DB), nunca en este archivo ni
+// en el request-.
+export interface ShopProductDto {
+  item_key: string;
+  name: string;
+  icon: string | null;
+  price: number;
+}
+
+export interface ShopStateDto {
+  products: ShopProductDto[];
+  coins: number;
+}
+
+export interface PurchaseResultDto {
+  spent: number;
+  coins: number;
+  inventory: InventoryItemDto[];
+}
+
+export async function getShop(): Promise<ShopStateDto> {
+  return request("/api/v1/shop");
+}
+
+export async function buyItem(itemKey: string, quantity: number): Promise<PurchaseResultDto> {
+  return request("/api/v1/shop/purchase", {
+    method: "POST",
+    body: JSON.stringify({ item_key: itemKey, quantity }),
+  });
+}
+
 export interface RecipeIngredientDto {
   id: number;
   item_id: number;

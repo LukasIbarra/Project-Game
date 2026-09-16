@@ -40,7 +40,7 @@ fijadas para todo el roadmap:
 | **13** | **Ranking real** | ✅ **Completada** |
 | **14** | **Notificaciones toast** | ✅ **Completada** |
 | **15** | **Navegación real desde el Mundo** | ✅ **Completada** |
-| 16 | Tienda | ⬜ Pendiente |
+| **16** | **Tienda** | ✅ **Completada** |
 | 17 | Historial de Combates + Ataques Recibidos | ⬜ Pendiente |
 | 18 | Presencia (jugadores conectados) | ⬜ Pendiente |
 | 19 | Otros jugadores visibles en el Mundo | ⬜ Pendiente |
@@ -134,27 +134,29 @@ de matching por nombre de objeto en TypeScript.
 
 ---
 
-### FASE 16 — Tienda
+### FASE 16 — Tienda ✅ COMPLETADA (versión simplificada, ver registro de cierre)
 
-**Objetivo:** vidriera compartida con rotación horaria real, cupo de compra
-por jugador.
-**Decisión de arquitectura (evaluada explícitamente, no default):** catálogo
-y rotación **compartidos** (todos ven la misma vidriera/countdown) + cupo de
-compra en **fila propia por jugador** — evita la contención de stock global
-compartido bajo escritura concurrente, mismo tipo de riesgo que ya causó
-SQLSTATE 25P02 en Neon. Stock verdaderamente global queda para Producción
-(Fase 29), condicionado a resolver esa deuda antes.
-**DB:** `shop_rotations` (`id`, `started_at`, `ends_at`, `items_json`:
-catálogo fijo de la rotación `[{item_key, price, stock_limit}]`);
-`shop_purchases` (`id`, `shop_rotation_id` FK cascadeOnDelete, `character_id`
-FK cascadeOnDelete, `item_key`, `quantity`, `created_at`; índice
-`[shop_rotation_id, character_id, item_key]`, no único).
-**API:** `GET /v1/shop` (resolución perezosa: genera la rotación si no hay
-una vigente), `POST /v1/shop/purchase` (valida cupo server-side, descuenta
-vía `EconomyService`, otorga vía `InventoryGrantService`).
-**Frontend:** nueva página `shop.astro` + entrada en `NavBar.astro`.
-**Dependencias:** Fase 12 (log de actividad), Fase 14 (toast de compra).
-**Qué NO hacer todavía:** stock global, consumibles/efectos especiales.
+**Objetivo original (borrador de esta hoja de ruta):** vidriera compartida
+con rotación horaria real, cupo de compra por jugador.
+**Decisión tomada al momento de implementar (re-briefing explícito del
+dueño del proyecto, reemplaza el borrador de arriba):** primera versión
+deliberadamente más simple — catálogo **fijo** (`shop_products`, sin
+rotación ni stock), reutilizando `EconomyService`/`InventoryGrantService`/
+`ActivityLogger` tal cual. Rotación horaria + cupo por jugador quedan
+documentados como evolución futura (ver "Deuda" en el registro de cierre),
+no se descartaron, solo se pospusieron.
+**DB real:** `shop_products` (`id`, `item_id` FK única a `items`
+restrictOnDelete, `price`, `is_active`, timestamps).
+**API real:** `GET /v1/shop` (catálogo activo + coins del personaje),
+`POST /v1/shop/purchase` (valida producto activo + fondos server-side,
+descuenta vía `EconomyService::buy()` nuevo, otorga vía
+`InventoryGrantService::grant()`, todo en una transacción atómica).
+**Frontend:** nueva página `shop.astro` + entrada en `NavBar.astro`
+(icono `shop_cart.png`, ya curado en la auditoría de iconos).
+**Dependencias:** Fase 12 (log de actividad), Fase 14 (toast de compra) —
+ambas reutilizadas tal cual, sin cambios.
+**Qué NO se hizo todavía (a propósito):** stock global, rotación horaria,
+consumibles con efecto real, descuentos/eventos, mercado entre jugadores.
 
 ---
 
@@ -570,3 +572,71 @@ del dueño del proyecto: funciona como acceso al Ranking, no se creó
   reexporta, hay que reaplicar a mano cualquier `properties` agregado acá
   si el reexport no las trae (dependiendo de si se edita el `.tmx` real en
   Tiled o se regenera desde cero).
+
+### Fase 16 — Tienda — ✅ Completada (primera versión, simplificada)
+
+**Implementado:**
+- Migración `shop_products` (`item_id` FK única a `items`, `price`,
+  `is_active`) — catálogo mantenible, sin rotación/stock (fuera de
+  alcance de esta versión, ver Deuda). `ShopProduct` (modelo) +
+  `ShopProductSeeder` (idempotente, `updateOrCreate`, registrado en
+  `DatabaseSeeder`): 6 productos reales (`wood`, `stone`, `wild_herb`,
+  `wood_plank`, `wooden_chair`, `small_potion`), precios con margen simple
+  sobre `sell_value` existente.
+- `EconomyService::buy()` (nuevo, junto a `sell()` ya existente —
+  extensión coherente de la MISMA clase, no un sistema paralelo): valida
+  producto activo + fondos, y dentro de una única transacción descuenta
+  `Character.coins` (la única columna de monedas que existe), otorga el
+  item vía `InventoryGrantService::grant()` (sin lógica de inventario
+  duplicada) y loguea `activity_events` tipo `purchase` vía
+  `ActivityLogger` (Fase 12, sin cambios).
+- `ShopController::index/purchase` (nuevo) + `PurchaseItemRequest`
+  (mismo patrón exacto que `SellItemRequest`/`CraftRequest`). Rutas
+  `GET /v1/shop`, `POST /v1/shop/purchase`.
+- Frontend: `ApiClient.ts` gana `ShopProductDto`/`ShopStateDto`/
+  `PurchaseResultDto`/`getShop()`/`buyItem()`. Nueva página `shop.astro`
+  (mismo patrón que `crafting.astro`: catálogo en grid de `GamePanel`,
+  stepper de cantidad, botón "Comprar"), entrada "Tienda" en
+  `NavBar.astro` (aparece en sidebar desktop y en la barra inferior
+  mobile automáticamente, mismo array). Ícono `shop` en `Icon.astro` →
+  `shop_cart.png`, ya curado y parqueado sin usar desde la auditoría de
+  iconos (Grupo B, reservado explícitamente para esta fase) — no se
+  agregó ni reorganizó ningún pack.
+- Compra exitosa dispara `toast.success(...)` + `refreshPlayerState()`
+  (HUD se actualiza sin recargar, mismo mecanismo de Fase 11); fallo
+  dispara `toast.error(...)` (fondos insuficientes, producto no
+  disponible). `home.astro` gana el `case "purchase"` en
+  `describeActivity()`.
+
+**Economía — fuente única de verdad:** `Character.coins` es la ÚNICA
+columna de monedas en todo el proyecto (sin `shop_coins` ni wallet nueva);
+`InventoryItem` es el ÚNICO modelo de inventario (sin tabla paralela). El
+precio de compra SIEMPRE se lee de `shop_products.price` server-side —
+verificado con test dedicado que un `price` mandado por el cliente se
+ignora silenciosamente.
+
+**Validación funcional real (Playwright + backend, sin mocks permanentes):**
+grant+venta real de un item (mismo mecanismo de datos de prueba ya usado
+en fases anteriores) para conseguir monedas → compra real vía UI → coins
+120→112 verificado en `/shop`, en el HUD y en la DB; item verificado en
+`/inventory`; evento `purchase` verificado en Actividad Reciente y por
+API directa; compra sin fondos rechazada con 422 sin tocar coins/
+inventario; producto inexistente/desactivado rechazado con 404; `price`
+manipulado ignorado. Probado en desktop (1280px) y en 360/390/430px sin
+overflow horizontal y con el toast visible sin overlaps.
+
+**Deuda/observaciones detectadas, no resueltas en esta fase (a propósito):**
+- Sin rotación horaria ni cupo de compra — el borrador original de esta
+  hoja de ruta preveía ambos; se simplificó explícitamente para esta
+  primera versión (re-briefing directo del dueño del proyecto). Migrar a
+  rotación real es aditivo: una tabla `shop_rotations` nueva + cambiar
+  `ShopController::index` para resolverla perezosamente, sin tocar
+  `EconomyService::buy()`.
+- `EconomyService::buy()` no usa `lockForUpdate()` sobre `Character` al
+  chequear `coins` (mismo patrón exacto que `sell()`, ya existente y en
+  producción) — con dos compras concurrentes del mismo jugador existe una
+  ventana teórica de carrera. No es nuevo de esta fase, es el mismo perfil
+  de riesgo que ya tenía `sell()`; documentado, no resuelto.
+- `ChatTest.php` sigue con sus 2 fallos preexistentes ya documentados
+  desde Fase 13 (datos reales acumulados en `chat_messages`) — no
+  relacionado con esta fase.

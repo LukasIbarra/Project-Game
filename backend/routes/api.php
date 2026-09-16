@@ -15,6 +15,7 @@ use App\Http\Controllers\Api\RankingController;
 use App\Http\Controllers\Api\RecipeController;
 use App\Http\Controllers\Api\RoomController;
 use App\Http\Controllers\Api\RoomObjectController;
+use App\Http\Controllers\Api\ShopController;
 use App\Http\Controllers\Auth\AuthController;
 use Illuminate\Support\Facades\Route;
 
@@ -93,6 +94,12 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::get('/arena', [ArenaController::class, 'index']);
     Route::get('/arena/combats/{combatLog}', [ArenaController::class, 'show']);
     Route::post('/arena/attack', [ArenaAttackController::class, 'attack']);
+
+    // Fase 16: Tienda (primera versión, catálogo fijo sin rotación) -mismo
+    // principio, el personaje siempre se deriva del usuario autenticado,
+    // el precio siempre sale de shop_products (DB), nunca del cliente.
+    Route::get('/shop', [ShopController::class, 'index']);
+    Route::post('/shop/purchase', [ShopController::class, 'purchase']);
 
     // Fase 13: endpoint propio y liviano para /ranking -reusa
     // ArenaRankingService tal cual (misma fuente de verdad que ya usa

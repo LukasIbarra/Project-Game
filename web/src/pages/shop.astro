@@ -1,0 +1,149 @@
+---
+// Fase 16: primera versión de la Tienda -catálogo fijo, sin rotación ni
+// stock, tal como se acotó explícitamente para esta fase-. Mismo patrón
+// que /crafting: Astro/HTML + <script> de cliente contra ApiClient, sin
+// Phaser (Tienda es un módulo Astro/HTML en la tabla de módulos de la
+// Fase 4). Reutiliza GamePanel/GameButton/Icon y el sistema de Toast de
+// Fase 14 -no se creó ningún componente visual nuevo-.
+import AppShell from "../layouts/AppShell.astro";
+import GamePanel from "../components/ui/GamePanel.astro";
+import Icon from "../components/ui/Icon.astro";
+---
+
+<AppShell title="Tienda">
+	<div class="mx-auto flex w-full max-w-4xl flex-col gap-4 py-4">
+		<p id="shop-error" class="hidden border border-red px-3 py-2 text-sm text-red"></p>
+
+		<GamePanel bodyClass="flex items-center justify-between p-5">
+			<div class="flex items-center gap-2">
+				<Icon name="shop" class="h-6 w-6" />
+				<h1 class="m-0 font-display text-sm text-cyan">TIENDA</h1>
+			</div>
+			<span class="flex items-center gap-1 font-mono text-sm text-text">
+				<Icon name="coin" class="h-4 w-4" />
+				<span id="shop-coins">…</span>
+			</span>
+		</GamePanel>
+
+		<GamePanel title="Productos" bodyClass="grid gap-3 p-5 sm:grid-cols-2">
+			<div id="shop-list" class="contents"></div>
+			<p id="shop-empty" class="hidden text-sm text-muted">No hay productos disponibles todavía.</p>
+		</GamePanel>
+	</div>
+</AppShell>
+
+<script>
+	import { buyItem, errorMessage, getShop, type ShopProductDto } from "../game/net/ApiClient";
+	import { refreshPlayerState } from "../game/state/playerState";
+	import { toast } from "../game/state/toast";
+
+	const errorEl = document.getElementById("shop-error")!;
+	const coinsEl = document.getElementById("shop-coins")!;
+	const listEl = document.getElementById("shop-list")!;
+	const emptyEl = document.getElementById("shop-empty")!;
+
+	let currentCoins = 0;
+
+	const STEP_BTN_CLASS =
+		"grid h-6 w-6 place-items-center border border-outline-strong text-text hover:border-cyan hover:text-cyan disabled:cursor-not-allowed disabled:opacity-40";
+	const BUY_BTN_CLASS =
+		"border-2 border-cyan px-4 py-1.5 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+
+	function showError(message: string): void {
+		errorEl.textContent = message;
+		errorEl.classList.remove("hidden");
+	}
+
+	function clearError(): void {
+		errorEl.classList.add("hidden");
+	}
+
+	function renderProductCard(product: ShopProductDto): HTMLElement {
+		let quantity = 1;
+		const maxQuantity = 99;
+
+		const card = document.createElement("div");
+		card.className = "flex flex-col gap-2 border border-outline-strong p-3";
+
+		card.innerHTML = `
+			<div class="flex items-center justify-between">
+				<span class="text-sm text-text">${product.icon ? product.icon + " " : ""}${product.name}</span>
+				<span class="flex items-center gap-1 font-mono text-xs text-muted" data-role="unit-price">
+					${product.price} monedas c/u
+				</span>
+			</div>
+			<div class="flex items-center justify-between">
+				<div class="flex items-center gap-2">
+					<button type="button" data-action="dec" class="${STEP_BTN_CLASS}">−</button>
+					<span data-role="qty" class="w-6 text-center font-mono text-sm text-text">1</span>
+					<button type="button" data-action="inc" class="${STEP_BTN_CLASS}">+</button>
+				</div>
+				<span class="font-mono text-xs text-muted">Total: <span data-role="total" class="text-text">${product.price}</span></span>
+			</div>
+			<button type="button" data-action="buy" class="${BUY_BTN_CLASS}">Comprar</button>
+		`;
+
+		const qtyEl = card.querySelector<HTMLElement>('[data-role="qty"]')!;
+		const totalEl = card.querySelector<HTMLElement>('[data-role="total"]')!;
+		const decBtn = card.querySelector<HTMLButtonElement>('[data-action="dec"]')!;
+		const incBtn = card.querySelector<HTMLButtonElement>('[data-action="inc"]')!;
+		const buyBtn = card.querySelector<HTMLButtonElement>('[data-action="buy"]')!;
+
+		function render(): void {
+			qtyEl.textContent = String(quantity);
+			totalEl.textContent = String(quantity * product.price);
+			decBtn.disabled = quantity <= 1;
+			incBtn.disabled = quantity >= maxQuantity;
+			buyBtn.disabled = currentCoins < quantity * product.price;
+		}
+
+		decBtn.addEventListener("click", () => {
+			quantity = Math.max(1, quantity - 1);
+			render();
+		});
+		incBtn.addEventListener("click", () => {
+			quantity = Math.min(maxQuantity, quantity + 1);
+			render();
+		});
+
+		buyBtn.addEventListener("click", async () => {
+			buyBtn.disabled = true;
+			try {
+				const result = await buyItem(product.item_key, quantity);
+				const icon = product.icon ? `${product.icon} ` : "";
+				toast.success(`Compraste ${quantity}× ${icon}${product.name} por ${result.spent} monedas`);
+				await refreshPlayerState();
+				await refresh();
+			} catch (err) {
+				// Fase 14: feedback de una acción puntual (se clickeó "Comprar"
+				// y falló, ej. monedas insuficientes) -a toast, no al banner de
+				// arriba (ese sigue siendo exclusivo de "no se pudo cargar la
+				// tienda", ver refresh() más abajo).
+				toast.error(errorMessage(err, "No se pudo completar la compra."));
+				render();
+			}
+		});
+
+		render();
+		return card;
+	}
+
+	async function refresh(): Promise<void> {
+		clearError();
+		try {
+			const state = await getShop();
+			currentCoins = state.coins;
+			coinsEl.textContent = state.coins.toLocaleString();
+
+			listEl.innerHTML = "";
+			emptyEl.classList.toggle("hidden", state.products.length > 0);
+			for (const product of state.products) {
+				listEl.appendChild(renderProductCard(product));
+			}
+		} catch (err) {
+			showError(errorMessage(err, "No se pudo cargar la tienda. ¿El backend está corriendo?"));
+		}
+	}
+
+	refresh();
+</script>

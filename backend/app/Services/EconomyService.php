@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Models\Character;
 use App\Models\Item;
+use App\Models\ShopProduct;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
@@ -49,5 +50,42 @@ class EconomyService
         });
 
         return $totalValue;
+    }
+
+    // Fase 16: extensión coherente de la misma clase que ya modifica coins
+    // -no un sistema económico paralelo-. Mismo principio que sell(): el
+    // precio SIEMPRE sale de `shop_products.price` (DB), nunca de lo que
+    // mande el cliente. Atómica: si algo falla a mitad de camino, la
+    // transacción entera se revierte -nunca quedan coins descontadas sin
+    // el item entregado-.
+    public function buy(Character $character, ShopProduct $product, int $quantity): int
+    {
+        if (! $product->is_active) {
+            throw ValidationException::withMessages([
+                'item_key' => ['Este producto no está disponible.'],
+            ]);
+        }
+
+        $totalCost = $product->price * $quantity;
+
+        if ($character->coins < $totalCost) {
+            throw ValidationException::withMessages([
+                'quantity' => ["No tenés suficientes monedas ({$character->coins} disponibles, necesitás {$totalCost})."],
+            ]);
+        }
+
+        DB::transaction(function () use ($character, $product, $quantity, $totalCost) {
+            $character->decrement('coins', $totalCost);
+            $this->inventory->grant($character, $product->item, $quantity);
+
+            $this->activity->log($character, 'purchase', [
+                'item_key' => $product->item->key,
+                'item_name' => $product->item->name,
+                'quantity' => $quantity,
+                'coins_spent' => $totalCost,
+            ]);
+        });
+
+        return $totalCost;
     }
 }

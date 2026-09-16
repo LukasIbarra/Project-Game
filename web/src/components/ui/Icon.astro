@@ -39,6 +39,7 @@ export type IconName =
   | "logout"
   | "coin"
   | "craft"
+  | "shop"
   | "chevron-down"
   | "chevron-right"
   | "toast-success"
@@ -68,6 +69,10 @@ const PIXEL_ICONS: Partial<Record<IconName, string>> = {
   ranking: "/assets/icons/rpg/crown.png",
   craft: "/assets/icons/rpg/anvil.png",
   coin: "/assets/icons/rpg/coin.png",
+  // Fase 16: ya estaba parqueado sin usar desde la auditoría de iconos
+  // (Grupo B, reservado explícitamente para esta fase) -no se sumó ni
+  // se reorganizó ningún pack nuevo.
+  shop: "/assets/icons/rpg/shop_cart.png",
   // Excepción documentada en la auditoría: "logout" es un control, no un
   // concepto RPG, pero ningún SVG de línea comunicaba "salir" mejor que
   // esta puerta -y a diferencia de cerrar/chevrons/chat, acá sí había un
