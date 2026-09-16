@@ -19,6 +19,11 @@
   --color-pink: #c98a9a;
   --color-cyan: #7fb3b8;
   --color-red: #b3555c;
+  /* Fase 17: victoria/derrota exigen verde/rojo -no existía un acento
+     verde-. Mismo criterio tonal que cyan/red (desaturado, pixel-art), no
+     un verde saturado tipo semáforo. NUNCA es el único indicador de
+     victoria: siempre va junto a texto ("Victoria") y/o ícono (cup/skull). */
+  --color-green: #7fb38a;
 
   --shadow-pixel: 3px 3px 0 rgba(0, 0, 0, 0.5);
   --shadow-pixel-sm: 2px 2px 0 rgba(0, 0, 0, 0.5);

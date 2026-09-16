@@ -6,10 +6,25 @@
 // "Phaser dibuja el mundo/sprites" de "Astro dibuja los paneles/overlay":
 // el log de texto del combate vive en HTML (mismo lenguaje visual que la
 // bitácora de F7.1), BattleScene solo emite un evento por paso.
+//
+// Fase 17: se agrega el panel "Historial de combates" (mis combates como
+// atacante o como defensor, GET /v1/arena/combats) junto al Ranking, y un
+// botón "Repetir" que reproduce un combate pasado reutilizando la MISMA
+// BattleScene -nunca vuelve a llamar CombatService::attack(), nunca
+// recalcula nada-. Los 4 íconos nuevos (attack/shield/victory/defeat) se
+// resuelven server-side una sola vez acá abajo (mismo patrón que
+// ToastHost.astro) para poder clonarlos desde el script de cliente sin
+// duplicar rutas de assets a mano.
 import AppShell from "../layouts/AppShell.astro";
 import GamePanel from "../components/ui/GamePanel.astro";
 import GameView from "../components/game/GameView.astro";
+import Icon from "../components/ui/Icon.astro";
 ---
+
+<template id="icon-attack"><Icon name="attack" class="h-4 w-4" /></template>
+<template id="icon-shield"><Icon name="shield" class="h-4 w-4" /></template>
+<template id="icon-victory"><Icon name="victory" class="h-4 w-4" /></template>
+<template id="icon-defeat"><Icon name="defeat" class="h-4 w-4" /></template>
 
 <AppShell title="Arena">
 	<div class="mx-auto flex w-full max-w-5xl flex-col gap-4 py-4">
@@ -54,22 +69,56 @@ import GameView from "../components/game/GameView.astro";
 				</GamePanel>
 			</div>
 
-			<GamePanel title="Ranking" bodyClass="flex flex-col gap-1 p-5">
-				<div id="ranking-list" class="flex flex-col gap-1"></div>
-			</GamePanel>
+			<div class="grid gap-4 lg:grid-cols-2">
+				<GamePanel title="Ranking" bodyClass="flex flex-col gap-1 p-5">
+					<div id="ranking-list" class="flex flex-col gap-1"></div>
+				</GamePanel>
+
+				<GamePanel title="Historial de combates" bodyClass="flex flex-col gap-3 p-5">
+					<div id="history-list" class="flex flex-col gap-2"></div>
+					<p id="history-empty" class="m-0 hidden text-sm text-muted">Todavía no participaste en ningún combate.</p>
+					<button
+						id="history-load-more"
+						type="button"
+						class="hidden self-center border-2 border-outline-strong px-3 py-1 font-mono text-xs text-muted transition-colors hover:border-cyan hover:text-cyan"
+					>
+						Cargar más
+					</button>
+				</GamePanel>
+			</div>
 		</div>
 
 		<div id="arena-battle" class="hidden flex-col items-center gap-3">
-			<GameView title="Combate" containerId="battle-container">
-				<div class="pointer-events-none absolute inset-0 flex flex-col justify-end p-3">
-					<div class="pointer-events-auto ml-auto flex max-h-40 w-72 flex-col gap-1 overflow-y-auto border-2 border-outline-strong bg-bg/90 p-3">
-						<div id="battle-log" class="flex flex-col gap-1 font-mono text-xs text-text"></div>
+			<p id="battle-replay-badge" class="m-0 hidden font-mono text-[0.6rem] uppercase tracking-wide text-muted">
+				Repetición de un combate pasado — no se altera ningún resultado ni estadística
+			</p>
+
+			<div id="battle-view">
+				<GameView title="Combate" containerId="battle-container">
+					<div class="pointer-events-none absolute inset-0 flex flex-col justify-end p-3">
+						<div class="pointer-events-auto ml-auto flex max-h-40 w-72 flex-col gap-1 overflow-y-auto border-2 border-outline-strong bg-bg/90 p-3">
+							<div id="battle-log" class="flex flex-col gap-1 font-mono text-xs text-text"></div>
+						</div>
 					</div>
-				</div>
-			</GameView>
+				</GameView>
+			</div>
+
+			<!-- Fase 17: si al personaje atacante o defensor de un combate viejo
+			     ya no se le puede resolver una apariencia actual (personaje
+			     borrado), no se inventa un aspecto -se degrada a esta vista de
+			     solo texto en vez de montar BattleScene. -->
+			<div id="battle-text-fallback" class="hidden w-full max-w-md flex-col gap-2 border-2 border-outline-strong bg-bg p-4">
+				<p class="m-0 font-mono text-xs text-muted">
+					Vista simplificada: uno de los personajes de este combate ya no está disponible, así que no se puede animar. Este es el registro completo:
+				</p>
+				<div id="battle-text-fallback-log" class="flex flex-col gap-1 font-mono text-xs text-text"></div>
+			</div>
 
 			<div id="battle-result" class="hidden w-full max-w-md flex-col items-center gap-2 border-2 border-outline-strong bg-bg p-5 text-center">
-				<p id="battle-result-title" class="m-0 font-display text-lg"></p>
+				<p id="battle-result-title" class="m-0 flex items-center justify-center gap-2 font-display text-lg">
+					<span id="battle-result-icon" class="inline-flex"></span>
+					<span id="battle-result-title-text"></span>
+				</p>
 				<p id="battle-result-rewards" class="m-0 font-mono text-sm text-text"></p>
 				<p id="battle-result-levelup" class="m-0 hidden font-mono text-xs text-cyan"></p>
 				<button
@@ -90,9 +139,12 @@ import GameView from "../components/game/GameView.astro";
 		attackCharacter,
 		errorMessage,
 		getArena,
+		getCombatHistory,
+		getCombatLog,
 		type ArenaOpponentDto,
 		type ArenaStateDto,
 		type CombatEventDto,
+		type CombatHistoryEntryDto,
 		type CombatLogDto,
 	} from "../game/net/ApiClient";
 	import type { BattleScene } from "../game/scenes/BattleScene";
@@ -119,9 +171,18 @@ import GameView from "../components/game/GameView.astro";
 	const opponentsEmptyEl = document.getElementById("opponents-empty")!;
 	const rankingListEl = document.getElementById("ranking-list")!;
 
+	const historyListEl = document.getElementById("history-list")!;
+	const historyEmptyEl = document.getElementById("history-empty")!;
+	const historyLoadMoreBtn = document.getElementById("history-load-more") as HTMLButtonElement;
+
+	const battleViewContainerEl = document.getElementById("battle-view")!;
+	const battleReplayBadgeEl = document.getElementById("battle-replay-badge")!;
+	const battleTextFallbackEl = document.getElementById("battle-text-fallback")!;
+	const battleTextFallbackLogEl = document.getElementById("battle-text-fallback-log")!;
 	const battleLogEl = document.getElementById("battle-log")!;
 	const battleResultEl = document.getElementById("battle-result")!;
-	const battleResultTitleEl = document.getElementById("battle-result-title")!;
+	const battleResultIconEl = document.getElementById("battle-result-icon")!;
+	const battleResultTitleTextEl = document.getElementById("battle-result-title-text")!;
 	const battleResultRewardsEl = document.getElementById("battle-result-rewards")!;
 	const battleResultLevelupEl = document.getElementById("battle-result-levelup")!;
 	const battleBackButton = document.getElementById("battle-back-button") as HTMLButtonElement;
@@ -136,6 +197,11 @@ import GameView from "../components/game/GameView.astro";
 	// canvas del DOM) justo antes de crear la siguiente.
 	let currentBattleGame: ReturnType<typeof startGame> | null = null;
 
+	// Fase 17: paginación del Historial (before_id, "combates más viejos
+	// que este id" -ver ArenaController::combats-).
+	let historyOldestId: number | null = null;
+	let historyHasMore = false;
+
 	function showError(message: string): void {
 		errorEl.textContent = message;
 		errorEl.classList.remove("hidden");
@@ -144,10 +210,25 @@ import GameView from "../components/game/GameView.astro";
 		errorEl.classList.add("hidden");
 	}
 
+	function cloneIcon(templateId: string): Node {
+		const tpl = document.getElementById(templateId) as HTMLTemplateElement | null;
+		return tpl ? tpl.content.cloneNode(true) : document.createTextNode("");
+	}
+
 	function formatCooldown(seconds: number): string {
 		const m = Math.floor(seconds / 60);
 		const s = seconds % 60;
 		return `${m}:${String(s).padStart(2, "0")}`;
+	}
+
+	function relativeTime(iso: string): string {
+		const diffSec = Math.max(0, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
+		if (diffSec < 60) return "hace un momento";
+		const diffMin = Math.round(diffSec / 60);
+		if (diffMin < 60) return `hace ${diffMin} min`;
+		const diffHr = Math.round(diffMin / 60);
+		if (diffHr < 24) return `hace ${diffHr} h`;
+		return `hace ${Math.round(diffHr / 24)} d`;
 	}
 
 	function statsLine(stats: ArenaStateDto["character"]["stats"]): void {
@@ -207,7 +288,7 @@ import GameView from "../components/game/GameView.astro";
 			setButtonState(opponent.cooldown_seconds);
 			button.dataset.cooldownUntil = String(Date.now() + opponent.cooldown_seconds * 1000);
 
-			button.addEventListener("click", () => startBattle(opponent));
+			button.addEventListener("click", () => startLiveBattle(opponent));
 			card.appendChild(button);
 			opponentsListEl.appendChild(card);
 		}
@@ -242,6 +323,79 @@ import GameView from "../components/game/GameView.astro";
 		});
 	}
 
+	// Fase 17: cada fila combina SIEMPRE texto + ícono para victoria/derrota
+	// -nunca solo el color verde/rojo, ver requisito de la fase-.
+	function renderHistoryEntry(entry: CombatHistoryEntryDto): HTMLElement {
+		const row = document.createElement("div");
+		row.className = "flex flex-col gap-1.5 border border-outline-strong p-2.5";
+
+		const top = document.createElement("div");
+		top.className = "flex items-center justify-between gap-2";
+
+		const roleWrap = document.createElement("span");
+		roleWrap.className = "flex items-center gap-1.5 text-xs text-muted";
+		roleWrap.appendChild(cloneIcon(entry.role === "attacker" ? "icon-attack" : "icon-shield"));
+		const roleLabel = document.createElement("span");
+		roleLabel.textContent = entry.role === "attacker" ? `Atacaste a ${entry.opponent_name}` : `${entry.opponent_name} te atacó`;
+		roleWrap.appendChild(roleLabel);
+		top.appendChild(roleWrap);
+
+		const resultWrap = document.createElement("span");
+		const isVictory = entry.result === "victory";
+		resultWrap.className = `flex items-center gap-1 font-mono text-xs font-bold ${isVictory ? "text-green" : "text-red"}`;
+		resultWrap.appendChild(cloneIcon(isVictory ? "icon-victory" : "icon-defeat"));
+		const resultLabel = document.createElement("span");
+		resultLabel.textContent = isVictory ? "Victoria" : "Derrota";
+		resultWrap.appendChild(resultLabel);
+		top.appendChild(resultWrap);
+
+		row.appendChild(top);
+
+		const bottom = document.createElement("div");
+		bottom.className = "flex items-center justify-between gap-2";
+
+		const meta = document.createElement("span");
+		meta.className = "font-mono text-[0.65rem] text-muted";
+		meta.textContent = `+${entry.xp} XP  +${entry.coins} 💰 · ${relativeTime(entry.created_at)}`;
+		bottom.appendChild(meta);
+
+		const replayBtn = document.createElement("button");
+		replayBtn.type = "button";
+		replayBtn.className = "border border-outline-strong px-2 py-0.5 font-mono text-[0.65rem] text-muted transition-colors hover:border-pink hover:text-pink";
+		replayBtn.textContent = "Repetir";
+		replayBtn.addEventListener("click", () => replayCombat(entry.id));
+		bottom.appendChild(replayBtn);
+
+		row.appendChild(bottom);
+		return row;
+	}
+
+	function renderHistoryPage(entries: CombatHistoryEntryDto[], append: boolean): void {
+		if (!append) {
+			historyListEl.innerHTML = "";
+		}
+		for (const entry of entries) {
+			historyListEl.appendChild(renderHistoryEntry(entry));
+		}
+		historyEmptyEl.classList.toggle("hidden", historyListEl.children.length > 0);
+	}
+
+	async function loadHistory(reset: boolean): Promise<void> {
+		try {
+			const page = await getCombatHistory(reset ? undefined : (historyOldestId ?? undefined));
+			renderHistoryPage(page.combats, !reset);
+			historyHasMore = page.has_more;
+			if (page.combats.length > 0) {
+				historyOldestId = page.combats[page.combats.length - 1].id;
+			}
+			historyLoadMoreBtn.classList.toggle("hidden", !historyHasMore);
+		} catch (err) {
+			showError(errorMessage(err, "No se pudo cargar el historial de combates."));
+		}
+	}
+
+	historyLoadMoreBtn.addEventListener("click", () => loadHistory(false));
+
 	async function refresh(): Promise<void> {
 		clearError();
 		try {
@@ -252,18 +406,20 @@ import GameView from "../components/game/GameView.astro";
 		} catch (err) {
 			showError(errorMessage(err, "No se pudo cargar la Arena."));
 		}
+		historyOldestId = null;
+		await loadHistory(true);
 	}
 
 	function roleName(role: "attacker" | "defender", log: CombatLogDto): string {
 		return role === "attacker" ? log.events_json.attacker.name : log.events_json.defender.name;
 	}
 
-	function appendLogLine(text: string): void {
+	function appendLogLine(container: HTMLElement, text: string): void {
 		const line = document.createElement("p");
 		line.className = "m-0";
 		line.textContent = text;
-		battleLogEl.appendChild(line);
-		battleLogEl.parentElement!.scrollTop = battleLogEl.parentElement!.scrollHeight;
+		container.appendChild(line);
+		container.parentElement!.scrollTop = container.parentElement!.scrollHeight;
 	}
 
 	function describeEvent(event: CombatEventDto, log: CombatLogDto): string {
@@ -278,18 +434,39 @@ import GameView from "../components/game/GameView.astro";
 		return `${actorName} ataca a ${targetName}: -${event.damage} HP.`;
 	}
 
-	async function startBattle(opponent: ArenaOpponentDto): Promise<void> {
-		if (!latestState) return;
+	// Fase 17: título de resultado siempre con texto + ícono (VICTORIA/verde
+	// o DERROTA/rojo) -mismo componente para el combate en vivo y para
+	// "Repetir", relativo a `myRole` en ambos casos-.
+	function showBattleResult(log: CombatLogDto, myRole: "attacker" | "defender"): void {
+		const won = log.events_json.winner === myRole;
+		const reward = log.events_json.rewards[myRole];
 
-		let log: CombatLogDto;
-		try {
-			log = await attackCharacter(opponent.character_id);
-		} catch (err) {
-			showError(errorMessage(err, "No se pudo iniciar el combate."));
-			await refresh();
-			return;
+		battleResultIconEl.innerHTML = "";
+		battleResultIconEl.appendChild(cloneIcon(won ? "icon-victory" : "icon-defeat"));
+		battleResultTitleTextEl.textContent = won ? "VICTORIA" : "DERROTA";
+		battleResultTitleTextEl.className = won ? "text-green" : "text-red";
+		battleResultRewardsEl.textContent = `+${reward.xp} XP    +${reward.coins} 💰`;
+		if (reward.leveled_up) {
+			battleResultLevelupEl.textContent = `¡Subiste a nivel ${reward.new_level}!`;
+			battleResultLevelupEl.classList.remove("hidden");
+		} else {
+			battleResultLevelupEl.classList.add("hidden");
 		}
+		battleResultEl.classList.remove("hidden");
+		battleResultEl.classList.add("flex");
+		battleResultEl.scrollIntoView({ behavior: "smooth", block: "center" });
+	}
 
+	// Fase 17: un solo montaje de combate para vivo Y repetición -misma
+	// BattleScene, mismos eventos ya calculados server-side (CLAUDE.md #6),
+	// la única diferencia es de dónde sale `log` (POST /attack vs GET
+	// /arena/combats/{id}) y si se refresca el HUD al final (en la
+	// repetición no cambió nada, no hace falta).
+	function mountBattle(
+		log: CombatLogDto,
+		myRole: "attacker" | "defender",
+		options: { isReplay: boolean; attackerAppearance: Record<string, string | null> | null; defenderAppearance: Record<string, string | null> | null }
+	): void {
 		clearError();
 		mainViewEl.classList.add("hidden");
 		battleViewEl.classList.remove("hidden");
@@ -297,25 +474,46 @@ import GameView from "../components/game/GameView.astro";
 		battleResultEl.classList.add("hidden");
 		battleResultEl.classList.remove("flex");
 		battleLogEl.innerHTML = "";
+		battleTextFallbackLogEl.innerHTML = "";
+		battleReplayBadgeEl.classList.toggle("hidden", !options.isReplay);
 
-		// Nunca crear un segundo <canvas>: si ya había un combate montado
-		// (el jugador volvió a la Arena y atacó de nuevo), se destruye antes
-		// de levantar el nuevo -destroy(true) también saca el <canvas> viejo
-		// del DOM, no solo libera memoria-.
+		const canAnimate = Boolean(options.attackerAppearance) && Boolean(options.defenderAppearance);
+
+		if (!canAnimate) {
+			// No inventamos una apariencia para un personaje que ya no existe
+			// (deuda documentada, ver ArenaController::show): degradamos a
+			// texto plano con el registro completo, sin animar.
+			battleViewContainerEl.classList.add("hidden");
+			battleTextFallbackEl.classList.remove("hidden");
+			battleTextFallbackEl.classList.add("flex");
+			for (const event of log.events_json.events) {
+				appendLogLine(battleTextFallbackLogEl, describeEvent(event, log));
+			}
+			showBattleResult(log, myRole);
+			if (!options.isReplay) refreshPlayerState().catch(() => {});
+			return;
+		}
+
+		battleViewContainerEl.classList.remove("hidden");
+		battleTextFallbackEl.classList.add("hidden");
+		battleTextFallbackEl.classList.remove("flex");
+
 		currentBattleGame?.destroy(true);
 
+		// canAnimate ya garantizó que ambas apariencias no son null -las
+		// aserciones solo lo reflejan para TypeScript.
 		const game = startGame("battle-container", "BattleScene", {
 			attacker: {
 				name: log.events_json.attacker.name,
 				level: log.events_json.attacker.level,
 				maxHp: log.events_json.attacker.stats.max_hp,
-				appearance: latestState.character.appearance_json,
+				appearance: options.attackerAppearance!,
 			},
 			defender: {
 				name: log.events_json.defender.name,
 				level: log.events_json.defender.level,
 				maxHp: log.events_json.defender.stats.max_hp,
-				appearance: opponent.appearance_json,
+				appearance: options.defenderAppearance!,
 			},
 			events: log.events_json.events,
 		});
@@ -327,35 +525,63 @@ import GameView from "../components/game/GameView.astro";
 			clearInterval(waitScene);
 
 			scene.events.on("combat-event", ({ event }: { event: CombatEventDto }) => {
-				appendLogLine(describeEvent(event, log));
+				appendLogLine(battleLogEl, describeEvent(event, log));
 			});
 
 			scene.events.on("combat-finished", () => {
-				const won = log.events_json.winner === "attacker";
-				// El usuario que ve esta pantalla siempre es quien inició el
-				// ataque (solo el atacante puede llamar POST /arena/attack),
-				// así que su recompensa siempre es `rewards.attacker` -gane o
-				// pierda- nunca `rewards.defender`.
-				const reward = log.events_json.rewards.attacker;
-				battleResultTitleEl.textContent = won ? "VICTORIA" : "DERROTA";
-				battleResultTitleEl.className = `m-0 font-display text-lg ${won ? "text-cyan" : "text-red"}`;
-				battleResultRewardsEl.textContent = `+${reward.xp} XP    +${reward.coins} 💰`;
-				if (reward.leveled_up) {
-					battleResultLevelupEl.textContent = `¡Subiste a nivel ${reward.new_level}!`;
-					battleResultLevelupEl.classList.remove("hidden");
-				} else {
-					battleResultLevelupEl.classList.add("hidden");
-				}
-				battleResultEl.classList.remove("hidden");
-				battleResultEl.classList.add("flex");
-				battleResultEl.scrollIntoView({ behavior: "smooth", block: "center" });
-
+				showBattleResult(log, myRole);
 				// Fase 11: el combate ya cambió nivel/exp/monedas server-side -
-				// refrescamos el HUD acá para que se vea al instante, sin
-				// esperar a que el jugador navegue a otra página.
-				refreshPlayerState().catch(() => {});
+				// refrescamos el HUD acá para que se vea al instante. En una
+				// repetición no hace falta: no se volvió a ejecutar
+				// CombatService::attack(), el estado del jugador no cambió.
+				if (!options.isReplay) refreshPlayerState().catch(() => {});
 			});
 		}, 100);
+	}
+
+	async function startLiveBattle(opponent: ArenaOpponentDto): Promise<void> {
+		if (!latestState) return;
+
+		let log: CombatLogDto;
+		try {
+			log = await attackCharacter(opponent.character_id);
+		} catch (err) {
+			showError(errorMessage(err, "No se pudo iniciar el combate."));
+			await refresh();
+			return;
+		}
+
+		// Quien ve esta pantalla siempre es quien inició el ataque (solo el
+		// atacante puede llamar POST /arena/attack).
+		mountBattle(log, "attacker", {
+			isReplay: false,
+			attackerAppearance: latestState.character.appearance_json,
+			defenderAppearance: opponent.appearance_json,
+		});
+	}
+
+	// Fase 17, botón "Repetir": NUNCA llama a attackCharacter()/POST
+	// /arena/attack -solo lee el combate ya guardado (GET
+	// /arena/combats/{id}) y lo reproduce con la misma BattleScene. Cero
+	// gasto de recursos, cero combat_log nuevo, cero cambio de stats.
+	async function replayCombat(combatId: number): Promise<void> {
+		if (!latestState) return;
+
+		let log: CombatLogDto;
+		try {
+			log = await getCombatLog(combatId);
+		} catch (err) {
+			showError(errorMessage(err, "No se pudo cargar ese combate."));
+			return;
+		}
+
+		const myRole: "attacker" | "defender" = log.attacker_character_id === latestState.character.id ? "attacker" : "defender";
+
+		mountBattle(log, myRole, {
+			isReplay: true,
+			attackerAppearance: log.attacker_appearance_json,
+			defenderAppearance: log.defender_appearance_json,
+		});
 	}
 
 	battleBackButton.addEventListener("click", async () => {

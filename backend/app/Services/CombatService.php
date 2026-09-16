@@ -108,19 +108,7 @@ class CombatService
             $defender->coins += $defenderCoins;
             $defender->save();
 
-            // Fase 12: solo el atacante -es quien inició la acción-. El
-            // defensor se entera de esto recién en Fase 17 (Historial de
-            // Combates + Ataques Recibidos), a propósito no adelantado acá.
-            $this->activity->log($attacker, 'combat', [
-                'result' => $winnerIsAttacker ? 'victory' : 'defeat',
-                'opponent_name' => $defender->name,
-                'xp' => $attackerXp,
-                'coins' => $attackerCoins,
-                'leveled_up' => $attackerProgress['leveled_up'],
-                'new_level' => $attackerProgress['new_level'],
-            ]);
-
-            return CombatLog::create([
+            $combatLog = CombatLog::create([
                 'attacker_character_id' => $attacker->id,
                 'defender_character_id' => $defender->id,
                 'winner_character_id' => $winnerIsAttacker ? $attacker->id : $defender->id,
@@ -165,6 +153,34 @@ class CombatService
                     ],
                 ],
             ]);
+
+            // Fase 17: ahora ambos se enteran vía el Activity Feed ya
+            // existente (Fase 12) -sin inbox/notificaciones nuevas-. Antes
+            // (Fase 12-16) solo se logueaba 'combat' del lado del atacante;
+            // ese type queda documentado como legado en describeActivity()
+            // (home.astro) para no romper filas ya guardadas en la DB
+            // compartida de desarrollo.
+            $this->activity->log($attacker, 'combat_attacked', [
+                'combat_id' => $combatLog->id,
+                'result' => $winnerIsAttacker ? 'victory' : 'defeat',
+                'opponent_name' => $defender->name,
+                'xp' => $attackerXp,
+                'coins' => $attackerCoins,
+                'leveled_up' => $attackerProgress['leveled_up'],
+                'new_level' => $attackerProgress['new_level'],
+            ]);
+
+            $this->activity->log($defender, 'combat_defended', [
+                'combat_id' => $combatLog->id,
+                'result' => $winnerIsAttacker ? 'defeat' : 'victory',
+                'opponent_name' => $attacker->name,
+                'xp' => $defenderXp,
+                'coins' => $defenderCoins,
+                'leveled_up' => $defenderProgress['leveled_up'],
+                'new_level' => $defenderProgress['new_level'],
+            ]);
+
+            return $combatLog;
         });
     }
 

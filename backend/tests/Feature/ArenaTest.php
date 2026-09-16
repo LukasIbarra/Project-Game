@@ -344,4 +344,152 @@ class ArenaTest extends TestCase
             'defender_character_id' => 999999999,
         ])->assertStatus(422);
     }
+
+    // Fase 17: Historial de Combates + Ataques Recibidos.
+
+    public function test_get_arena_combats_incluye_combates_como_atacante_y_como_defensor(): void
+    {
+        [$me, $tokenMe] = $this->characterWithToken();
+        [$otro, $tokenOtro] = $this->characterWithToken();
+
+        $this->withToken($tokenMe)->postJson('/api/v1/arena/attack', [
+            'defender_character_id' => $otro->id,
+        ])->assertStatus(201);
+
+        $this->app['auth']->forgetGuards();
+
+        // Cooldown es por PAR ordenado (attacker->defender), así que "otro"
+        // atacando de vuelta a "me" no choca con el cooldown recién creado.
+        $this->withToken($tokenOtro)->postJson('/api/v1/arena/attack', [
+            'defender_character_id' => $me->id,
+        ])->assertStatus(201);
+
+        $this->app['auth']->forgetGuards();
+
+        $response = $this->withToken($tokenMe)->getJson('/api/v1/arena/combats');
+
+        $response->assertOk();
+        $roles = collect($response->json('combats'))->pluck('role')->all();
+        $this->assertContains('attacker', $roles);
+        $this->assertContains('defender', $roles);
+        $this->assertCount(2, $roles);
+    }
+
+    public function test_get_arena_combats_no_incluye_combates_ajenos(): void
+    {
+        [$a, $tokenA] = $this->characterWithToken();
+        [$b] = $this->characterWithToken();
+        [, $tokenC] = $this->characterWithToken();
+
+        $this->withToken($tokenA)->postJson('/api/v1/arena/attack', [
+            'defender_character_id' => $b->id,
+        ])->assertStatus(201);
+
+        $this->app['auth']->forgetGuards();
+
+        $response = $this->withToken($tokenC)->getJson('/api/v1/arena/combats');
+
+        $response->assertOk();
+        $this->assertCount(0, $response->json('combats'));
+    }
+
+    public function test_get_arena_combats_pagina_con_before_id_sin_duplicar_ni_perder_filas(): void
+    {
+        [$me, $token] = $this->characterWithToken();
+
+        // 17 combates > MAX_COMBATS (15) para forzar dos páginas -un
+        // objetivo distinto por combate: el cooldown es por par
+        // atacante-objetivo, no importa reusar objetivos entre sí.
+        $ids = [];
+        for ($i = 0; $i < 17; $i++) {
+            [$defender] = $this->characterWithToken();
+            $ids[] = $defender->id;
+        }
+        foreach ($ids as $defenderId) {
+            $this->withToken($token)->postJson('/api/v1/arena/attack', [
+                'defender_character_id' => $defenderId,
+            ])->assertStatus(201);
+        }
+
+        $page1 = $this->withToken($token)->getJson('/api/v1/arena/combats');
+        $page1->assertOk();
+        $this->assertCount(15, $page1->json('combats'));
+        $this->assertTrue($page1->json('has_more'));
+
+        $lastId = collect($page1->json('combats'))->last()['id'];
+        $page2 = $this->withToken($token)->getJson("/api/v1/arena/combats?before_id={$lastId}");
+        $page2->assertOk();
+        $this->assertCount(2, $page2->json('combats'));
+        $this->assertFalse($page2->json('has_more'));
+
+        $allIds = collect($page1->json('combats'))->pluck('id')
+            ->merge(collect($page2->json('combats'))->pluck('id'));
+        $this->assertCount(17, $allIds->unique());
+    }
+
+    public function test_combat_attacked_y_combat_defended_quedan_en_la_actividad_de_cada_uno(): void
+    {
+        [$attacker, $tokenAttacker] = $this->characterWithToken();
+        [$defender, $tokenDefender] = $this->characterWithToken(['strength' => 1, 'agility' => 1, 'vitality' => 1]);
+
+        $combat = $this->withToken($tokenAttacker)->postJson('/api/v1/arena/attack', [
+            'defender_character_id' => $defender->id,
+        ]);
+        $combat->assertStatus(201);
+        $winnerIsAttacker = $combat->json('events_json.winner') === 'attacker';
+
+        $this->app['auth']->forgetGuards();
+
+        $attackerActivity = $this->withToken($tokenAttacker)->getJson('/api/v1/activity');
+        $attackedEvent = collect($attackerActivity->json())->firstWhere('type', 'combat_attacked');
+        $this->assertNotNull($attackedEvent, 'El atacante debe tener un evento combat_attacked.');
+        $this->assertEquals($defender->name, $attackedEvent['payload']['opponent_name']);
+        $this->assertEquals($winnerIsAttacker ? 'victory' : 'defeat', $attackedEvent['payload']['result']);
+
+        $this->app['auth']->forgetGuards();
+
+        $defenderActivity = $this->withToken($tokenDefender)->getJson('/api/v1/activity');
+        $defendedEvent = collect($defenderActivity->json())->firstWhere('type', 'combat_defended');
+        $this->assertNotNull($defendedEvent, 'El defensor debe enterarse vía combat_defended sin atacar él mismo.');
+        $this->assertEquals($attacker->name, $defendedEvent['payload']['opponent_name']);
+        $this->assertEquals($winnerIsAttacker ? 'defeat' : 'victory', $defendedEvent['payload']['result']);
+    }
+
+    public function test_show_combate_incluye_apariencia_actual_para_el_boton_repetir(): void
+    {
+        [, $token] = $this->characterWithToken(['appearance_json' => ['body' => 'base']]);
+        [$defender] = $this->characterWithToken(['appearance_json' => ['body' => 'alt']]);
+
+        $response = $this->withToken($token)->postJson('/api/v1/arena/attack', [
+            'defender_character_id' => $defender->id,
+        ]);
+        $combatId = $response->json('id');
+
+        $replay = $this->withToken($token)->getJson("/api/v1/arena/combats/{$combatId}");
+        $replay->assertOk();
+        $this->assertEquals(['body' => 'base'], $replay->json('attacker_appearance_json'));
+        $this->assertEquals(['body' => 'alt'], $replay->json('defender_appearance_json'));
+    }
+
+    // Fase 17, deuda documentada: si el personaje ya no existe (FK
+    // nullOnDelete), no se inventa una apariencia -el campo llega en null y
+    // el frontend degrada a la vista de solo texto (ver arena.astro,
+    // mountBattle/canAnimate).
+    public function test_show_combate_devuelve_apariencia_null_si_el_personaje_ya_no_existe(): void
+    {
+        [, $token] = $this->characterWithToken();
+        [$defender] = $this->characterWithToken();
+
+        $response = $this->withToken($token)->postJson('/api/v1/arena/attack', [
+            'defender_character_id' => $defender->id,
+        ]);
+        $combatId = $response->json('id');
+
+        $defender->delete();
+
+        $replay = $this->withToken($token)->getJson("/api/v1/arena/combats/{$combatId}");
+        $replay->assertOk();
+        $this->assertNotNull($replay->json('attacker_appearance_json'));
+        $this->assertNull($replay->json('defender_appearance_json'));
+    }
 }

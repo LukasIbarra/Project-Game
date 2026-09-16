@@ -561,6 +561,38 @@ export interface CombatLogDto {
   started_at: string;
   finished_at: string | null;
   events_json: CombatResultDto;
+  // Fase 17 ("Repetir"): apariencia ACTUAL de cada personaje -no la que
+  // tenían en el momento del combate, ese dato nunca se guardó (ver
+  // ArenaController::show). null si el personaje ya no existe -en ese
+  // caso el frontend no debe montar BattleScene, solo el log de texto.
+  attacker_appearance_json: Record<string, string | null> | null;
+  defender_appearance_json: Record<string, string | null> | null;
+}
+
+// Fase 17: fila de "Historial de Combates" -ya resuelta server-side
+// (rol/oponente/resultado relativos a MÍ, ver ArenaController::combats)
+// para no duplicar esa lógica acá.
+export interface CombatHistoryEntryDto {
+  id: number;
+  role: "attacker" | "defender";
+  opponent_character_id: number | null;
+  opponent_name: string;
+  result: "victory" | "defeat";
+  xp: number;
+  coins: number;
+  leveled_up: boolean;
+  new_level: number | null;
+  created_at: string;
+}
+
+export interface CombatHistoryPageDto {
+  combats: CombatHistoryEntryDto[];
+  has_more: boolean;
+}
+
+export async function getCombatHistory(beforeId?: number): Promise<CombatHistoryPageDto> {
+  const query = beforeId ? `?before_id=${beforeId}` : "";
+  return request(`/api/v1/arena/combats${query}`);
 }
 
 export async function getArena(): Promise<ArenaStateDto> {

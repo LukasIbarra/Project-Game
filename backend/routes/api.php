@@ -92,6 +92,11 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     // cliente. El resultado completo (eventos/ganador/xp/monedas) lo
     // calcula el backend en el POST; Phaser solo lo reproduce.
     Route::get('/arena', [ArenaController::class, 'index']);
+    // Fase 17: lista ANTES del show con {combatLog} -no compiten entre sí
+    // (una es /arena/combats a secas, la otra pide un segmento extra), pero
+    // queda en orden de lectura natural: primero la lista, después el
+    // detalle de un ítem puntual.
+    Route::get('/arena/combats', [ArenaController::class, 'combats']);
     Route::get('/arena/combats/{combatLog}', [ArenaController::class, 'show']);
     Route::post('/arena/attack', [ArenaAttackController::class, 'attack']);
 

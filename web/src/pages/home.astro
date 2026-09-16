@@ -134,10 +134,19 @@ const quickLinks: { href: string; label: string; icon: IconName }[] = [
 		switch (event.type) {
 			case "level_up":
 				return `⬆ ¡Subiste a nivel ${p.new_level}!`;
+			case "combat_attacked":
+			// "combat": tipo legado (Fase 12-16, antes de que Fase 17 separara
+			// atacante/defensor) -mismo texto que combat_attacked, para que
+			// filas viejas ya guardadas en la DB de desarrollo sigan
+			// mostrándose en vez de caer al default genérico.
 			case "combat":
 				return p.result === "victory"
 					? `⚔ Ganaste un combate contra ${p.opponent_name} (+${p.xp} XP, +${p.coins} 💰)`
 					: `⚔ Perdiste un combate contra ${p.opponent_name}`;
+			case "combat_defended":
+				return p.result === "victory"
+					? `🛡 Repeliste un ataque de ${p.opponent_name} (+${p.xp} XP, +${p.coins} 💰)`
+					: `🛡 ${p.opponent_name} te atacó y te venció (+${p.xp} XP, +${p.coins} 💰)`;
 			case "expedition_claimed":
 				return `🐾 Tu mascota volvió de ${p.destination_name}`;
 			case "sale":

@@ -41,7 +41,7 @@ fijadas para todo el roadmap:
 | **14** | **Notificaciones toast** | ✅ **Completada** |
 | **15** | **Navegación real desde el Mundo** | ✅ **Completada** |
 | **16** | **Tienda** | ✅ **Completada** |
-| 17 | Historial de Combates + Ataques Recibidos | ⬜ Pendiente |
+| **17** | **Historial de Combates + Ataques Recibidos** | ✅ **Completada** |
 | 18 | Presencia (jugadores conectados) | ⬜ Pendiente |
 | 19 | Otros jugadores visibles en el Mundo | ⬜ Pendiente |
 | 20 | Motor de expediciones realmente temporal | ⬜ Pendiente |
@@ -160,7 +160,7 @@ consumibles con efecto real, descuentos/eventos, mercado entre jugadores.
 
 ---
 
-### FASE 17 — Historial de Combates + Ataques Recibidos
+### FASE 17 — Historial de Combates + Ataques Recibidos ✅ COMPLETADA
 
 **Objetivo:** panel de Historial junto al Ranking en Arena; visibilizar
 ataques recibidos.
@@ -640,3 +640,78 @@ overflow horizontal y con el toast visible sin overlaps.
 - `ChatTest.php` sigue con sus 2 fallos preexistentes ya documentados
   desde Fase 13 (datos reales acumulados en `chat_messages`) — no
   relacionado con esta fase.
+
+### Fase 17 — Historial de Combates + Ataques Recibidos — ✅ Completada
+
+**Implementado:**
+- Cero tabla nueva — `combat_logs` ya tenía todo lo necesario (verificado
+  antes de tocar nada). `CombatService::attack()` ahora loguea
+  `combat_attacked` (atacante, mismo payload que antes) y `combat_defended`
+  (defensor, nuevo) en la MISMA transacción — el defensor se entera vía el
+  Activity Feed ya existente (Fase 12), sin inbox/notificaciones/realtime
+  nuevo. El `type` legado `combat` (Fase 12-16) queda documentado y
+  soportado en `describeActivity()` (`home.astro`) para no romper filas ya
+  guardadas en la DB compartida de desarrollo.
+- Nuevo `GET /v1/arena/combats` (`ArenaController::combats`): mis combates
+  como atacante O defensor, paginado por cursor descendente (`before_id`,
+  distinto del `after_id` de Chat/Activity a propósito — ahí el caso de uso
+  es "pollear lo nuevo", acá es "navegar hacia atrás en un historial que
+  ya arranca mostrando lo último"). Cada fila ya resuelve rol/oponente/
+  resultado relativos al jugador server-side (se lee 100% de
+  `events_json`, sin joins a `characters`), para no duplicar esa lógica en
+  el cliente.
+- `ArenaController::show()` (ya existente, Fase 10) extendido con
+  `attacker_appearance_json`/`defender_appearance_json` (apariencia ACTUAL
+  de ambos personajes) — necesario para el botón "Repetir".
+- Frontend `arena.astro`: panel "Historial de combates" junto al Ranking
+  (grid de 2 columnas en desktop, apilado en mobile). Cada fila combina
+  SIEMPRE texto + ícono, nunca solo color (requisito de la fase): rol
+  ("Atacaste a X" / "X te atacó" con íconos `attack_fist.png`/
+  `shield_holy.png`) y resultado ("Victoria" verde + `cup.png` / "Derrota"
+  roja + `skull.png`). Los 5 íconos (`attack`, `shield`, `victory`,
+  `defeat`, `history`) ya estaban curados en la auditoría original sin
+  usar — no se agregó ni un pack ni un emoji nuevo. Nuevo token
+  `--color-green` en `theme.css` (mismo criterio tonal que cyan/red,
+  pixel-art desaturado) porque no existía ningún acento verde.
+- Botón "Repetir": llama únicamente a `GET /arena/combats/{id}` (ya
+  existente), NUNCA a `POST /arena/attack` — reutiliza la misma
+  `BattleScene`/`startGame()` que el combate en vivo (cero motor de
+  combate nuevo, cero recálculo, cero `combat_log` nuevo, cero gasto de
+  recursos). Un badge "Repetición..." deja explícito que no se altera
+  ningún resultado; al terminar NO se llama `refreshPlayerState()` (nada
+  cambió server-side). Paginación del historial vía botón "Cargar más".
+
+**Deuda técnica documentada (a propósito, no inventada):** `combat_logs`
+nunca guardó `appearance_json` por combate (solo `character_id`/`name`/
+`level`/`stats`, sección 18 del roadmap de Fase 10 lo congela así a
+propósito). "Repetir" anima con la apariencia ACTUAL de cada personaje, no
+la que tenía en el momento histórico del combate — si alguien cambió de
+equipo/aspecto después, la repetición no lo refleja. Si el personaje ya no
+existe (FK `nullOnDelete`), el campo llega en `null` y el frontend degrada
+a una vista de solo texto (`#battle-text-fallback`, log completo de
+eventos sin animar) en vez de inventar un aspecto — cubierto por test
+(`test_show_combate_devuelve_apariencia_null_si_el_personaje_ya_no_existe`).
+
+**Validación funcional real (Playwright + backend, sin mocks permanentes):**
+25/25 tests de `ArenaTest` (incluye historial mixto atacante/defensor,
+aislamiento entre jugadores ajenos, paginación con 17 combates > el tope
+de 15 sin duplicar ni perder filas, `combat_attacked`/`combat_defended`
+verificados en `/activity` de ambos personajes, apariencia actual y su
+caso `null`); `ActivityTest` actualizado para reflejar que ahora AMBOS se
+enteran (antes solo el atacante). En navegador real: combate real
+atacante→defensor y defensor→atacante, panel de Historial con 2 filas
+correctas (roles/colores/íconos), "Repetir" reproduce la animación
+completa en `BattleScene` con el resultado correcto (verificado tanto
+Victoria/verde como Derrota/rojo, con `computed color` exacto del token),
+Activity Feed en `/home` muestra el texto correcto para ambos roles,
+paginación "Cargar más" verificada con 17 combates reales (15 + 2, botón
+desaparece al agotarse). Cero overflow horizontal y cero errores de
+consola en 360/390/430/1280px. Build (`astro build`) y `tsc --noEmit`
+limpios.
+
+**Qué NO se hizo (a propósito, según el alcance de esta fase):**
+- Sin aviso instantáneo en tiempo real — el defensor se entera en el
+  próximo poll del Activity Feed (10s), tal como especifica la fase.
+- Sin inbox/tabla de notificaciones/mensajería privada.
+- `ChatTest.php` sigue con sus 2 fallos preexistentes ya documentados
+  desde Fase 13 — no relacionado con esta fase.

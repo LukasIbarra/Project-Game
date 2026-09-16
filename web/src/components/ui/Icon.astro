@@ -25,6 +25,12 @@
 // representaba success/error/info/warning; se agregan acá en vez de
 // reusar uno ajeno (ej. "bell" para error) para no depender solo del color
 // como exige la fase.
+// Fase 17 (Historial de Combates): 5 conceptos nuevos, los 5 con candidato
+// real ya curado en la auditoría (ninguno nuevo se agrega a los packs) -
+// "attack"/"shield" para el rol (ataqué / me atacaron), "victory"/"defeat"
+// para el resultado (siempre junto a texto, nunca solo el color verde/rojo),
+// "history" para el panel. Todos pixel-art -son conceptos RPG, no
+// controles de UI-, mismo criterio que arena/coin/craft.
 export type IconName =
   | "home"
   | "house"
@@ -40,6 +46,11 @@ export type IconName =
   | "coin"
   | "craft"
   | "shop"
+  | "attack"
+  | "shield"
+  | "victory"
+  | "defeat"
+  | "history"
   | "chevron-down"
   | "chevron-right"
   | "toast-success"
@@ -78,6 +89,12 @@ const PIXEL_ICONS: Partial<Record<IconName, string>> = {
   // esta puerta -y a diferencia de cerrar/chevrons/chat, acá sí había un
   // reemplazo claramente superior-.
   logout: "/assets/icons/rpg/door.png",
+  // Fase 17: ya curados en la auditoría original, sin usar hasta ahora.
+  attack: "/assets/icons/rpg/attack_fist.png",
+  shield: "/assets/icons/rpg/shield_holy.png",
+  victory: "/assets/icons/rpg/cup.png",
+  defeat: "/assets/icons/rpg/skull.png",
+  history: "/assets/icons/ui/hourglass_time.png",
 };
 
 // Solo los nombres que NO están en PIXEL_ICONS necesitan trazo SVG.

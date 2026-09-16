@@ -14,9 +14,10 @@ use Tests\TestCase;
 
 // Fase 12: feed de actividad reciente. Cubre: persistencia genérica del
 // logger, forma/orden/paginación de GET /v1/activity, aislamiento entre
-// personajes, y que los 5 puntos de instrumentación reales (level_up,
-// combat, expedition_claimed, sale, crafting) efectivamente escriben un
-// evento -no solo que el endpoint "funcione" en abstracto-.
+// personajes, y que los puntos de instrumentación reales (level_up,
+// combat_attacked/combat_defended -Fase 17-, expedition_claimed, sale,
+// crafting) efectivamente escriben un evento -no solo que el endpoint
+// "funcione" en abstracto-.
 class ActivityTest extends TestCase
 {
     use DatabaseTransactions;
@@ -154,7 +155,7 @@ class ActivityTest extends TestCase
         ]);
     }
 
-    public function test_ganar_combate_registra_evento_combat_solo_para_el_atacante(): void
+    public function test_ganar_combate_registra_combat_attacked_para_el_atacante_y_combat_defended_para_el_defensor(): void
     {
         [$attacker, $token] = $this->characterWithToken(['strength' => 50, 'agility' => 50, 'vitality' => 50]);
         [$defender] = $this->characterWithToken(['strength' => 1, 'agility' => 1, 'vitality' => 1]);
@@ -163,17 +164,16 @@ class ActivityTest extends TestCase
             'defender_character_id' => $defender->id,
         ])->assertStatus(201);
 
+        // Fase 17: ahora ambos se enteran, cada uno con SU tipo de evento
+        // (el atacante inició la acción, el defensor la sufrió) -ver
+        // CombatService::attack-.
         $this->assertDatabaseHas('activity_events', [
             'character_id' => $attacker->id,
-            'type' => 'combat',
+            'type' => 'combat_attacked',
         ]);
-
-        // Fase 17 (Ataques Recibidos) todavía no existe: el defensor NO
-        // debe recibir ningún evento "combat" -a propósito, ver comentario
-        // en CombatService::attack-.
-        $this->assertDatabaseMissing('activity_events', [
+        $this->assertDatabaseHas('activity_events', [
             'character_id' => $defender->id,
-            'type' => 'combat',
+            'type' => 'combat_defended',
         ]);
     }
 
