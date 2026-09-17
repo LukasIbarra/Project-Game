@@ -74,6 +74,7 @@ import Icon from "../ui/Icon.astro";
     sendChatMessage,
     type ChatMessageDto,
   } from "../../game/net/ApiClient";
+  import { getEcho } from "../../game/net/Realtime";
 
   const POLL_INTERVAL_MS = 2500;
   const NEAR_BOTTOM_PX = 24;
@@ -214,14 +215,65 @@ import Icon from "../ui/Icon.astro";
       };
     }
 
+    // Fase Reverb: misma forma {start, stop, notifyLocalMessage} que
+    // createPollingSource(), pero alimentando el canal privado "chat" de
+    // Reverb en vez de un setInterval — corre EN PARALELO al polling,
+    // nunca lo reemplaza. Si getEcho()/la suscripción fallan (ej. las
+    // variables PUBLIC_REVERB_* todavía no están configuradas en este
+    // entorno), el catch de abajo evita que eso tire abajo el resto de
+    // initGlobalChat(); el polling sigue funcionando exactamente igual,
+    // sin depender de esto en absoluto.
+    function createWebSocketSource(onMessages: (messages: ChatMessageDto[]) => void) {
+      type PrivateChannel = ReturnType<ReturnType<typeof getEcho>["private"]>;
+      let channel: PrivateChannel | null = null;
+
+      return {
+        start() {
+          try {
+            channel = getEcho().private("chat");
+            // El evento define broadcastAs() = "ChatMessageCreated" del
+            // lado de Laravel -el punto inicial es obligatorio con un
+            // nombre de broadcast customizado, si no Echo arma el nombre
+            // completo por defecto (namespace + clase) y nunca matchea.
+            channel.listen(".ChatMessageCreated", (message: ChatMessageDto) => {
+              onMessages([message]);
+            });
+            channel.error((err: unknown) => {
+              console.warn("No se pudo autorizar el canal de chat en tiempo real -el polling sigue activo.", err);
+            });
+          } catch (err) {
+            console.warn("No se pudo conectar el chat en tiempo real -el polling sigue activo.", err);
+          }
+        },
+        stop() {
+          if (channel) {
+            getEcho().leaveChannel("chat");
+            channel = null;
+          }
+        },
+        // El mensaje propio ya se muestra al instante vía
+        // source.notifyLocalMessage() (polling, ver abajo) — cuando Reverb
+        // lo reenvíe por WebSocket va a traer el mismo id real y
+        // renderedIds lo va a absorber sin duplicar nada. No hace falta
+        // que este source haga nada acá.
+        notifyLocalMessage() {},
+      };
+    }
+
     const source = createPollingSource(renderIncoming);
     source.start();
 
+    const wsSource = createWebSocketSource(renderIncoming);
+    wsSource.start();
+
     // No hace falta un event listener de "destrucción" explícito en un
     // sitio multi-page (cada navegación recarga el documento y mata el
-    // intervalo solo) — esto es una red de seguridad barata para el caso
-    // de bfcache/pagehide, sin asumir ningún router client-side.
-    window.addEventListener("pagehide", () => source.stop());
+    // intervalo/conexión solos) — esto es una red de seguridad barata para
+    // el caso de bfcache/pagehide, sin asumir ningún router client-side.
+    window.addEventListener("pagehide", () => {
+      source.stop();
+      wsSource.stop();
+    });
 
     form.addEventListener("submit", async (event) => {
       event.preventDefault();

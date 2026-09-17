@@ -652,6 +652,17 @@ export async function sendChatMessage(message: string): Promise<ChatMessageDto> 
   });
 }
 
+// Fase Reverb: autoriza la suscripción a un canal privado de broadcasting
+// -mismo request() que todo lo demás acá, así el header Authorization:
+// Bearer sale automático (nunca cookies/sesión, ver docs/REALTIME_CHAT_AUDIT.md).
+// La consume el authorizer custom de Laravel Echo en Realtime.ts.
+export async function authorizeBroadcastChannel(socketId: string, channelName: string): Promise<unknown> {
+  return request("/api/v1/broadcasting/auth", {
+    method: "POST",
+    body: JSON.stringify({ socket_id: socketId, channel_name: channelName }),
+  });
+}
+
 // Fase 12: feed de actividad reciente -mismo patrón exacto que el chat
 // (after_id, sin WebSockets). El backend ya resuelve el `type` a texto en
 // ningún lado -esa traducción vive en el cliente (home.astro)-, `payload`
