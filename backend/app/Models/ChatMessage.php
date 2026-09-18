@@ -19,4 +19,18 @@ class ChatMessage extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    // Misma forma que ChatController::present() usaba inline -ahora vive
+    // acá para que el evento de broadcasting (ChatMessageCreated) y la
+    // respuesta HTTP nunca puedan desincronizarse en dos formatos
+    // paralelos del mismo mensaje.
+    public function toBroadcastArray(): array
+    {
+        return [
+            'id' => $this->id,
+            'user_name' => $this->user->name,
+            'message' => $this->message,
+            'created_at' => $this->created_at->toIso8601String(),
+        ];
+    }
 }

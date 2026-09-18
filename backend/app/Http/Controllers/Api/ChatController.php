@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Events\ChatMessageCreated;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\SendChatMessageRequest;
 use App\Models\ChatMessage;
@@ -54,6 +55,16 @@ class ChatController extends Controller
 
         $message->setRelation('user', $request->user());
 
+        // Si Reverb está caído/mal configurado, el mensaje YA se guardó -
+        // un fallo acá nunca debe convertir un 201 real en un 500. El chat
+        // HTTP (polling todavía activo en el frontend en esta etapa) debe
+        // sobrevivir intacto aunque el broadcasting falle.
+        try {
+            event(new ChatMessageCreated($message));
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
         return response()->json($this->present($message), 201);
     }
 
@@ -61,11 +72,6 @@ class ChatController extends Controller
     // de User (CLAUDE.md/Fase Deploy: no exponer información sensible).
     private function present(ChatMessage $message): array
     {
-        return [
-            'id' => $message->id,
-            'user_name' => $message->user->name,
-            'message' => $message->message,
-            'created_at' => $message->created_at->toIso8601String(),
-        ];
+        return $message->toBroadcastArray();
     }
 }
