@@ -691,6 +691,13 @@ export interface PresenceEntryDto {
   name: string;
   level: number;
   current_map: string;
+  // Fase 19.5: el backend ya devolvía estos 3 campos desde F19.2
+  // (PresenceController::present()) -este tipo se había quedado
+  // desactualizado, nunca los declaró. null hasta que el personaje mande
+  // una posición real vía POST /presence/position (F19.6).
+  position_x: number | null;
+  position_y: number | null;
+  direction: string | null;
   status: string;
 }
 
@@ -701,6 +708,11 @@ export async function sendPresenceHeartbeat(currentMap: string): Promise<void> {
   });
 }
 
-export async function getPresence(): Promise<PresenceEntryDto[]> {
-  return request("/api/v1/presence");
+// Fase 19.5: `map` opcional -sin él, comportamiento idéntico a F18 (todos
+// los jugadores online). Con él, filtra por current_map server-side (ver
+// PresenceController::resolveMapFilter) -ej. Mundo pide únicamente
+// getPresence("play").
+export async function getPresence(map?: string): Promise<PresenceEntryDto[]> {
+  const query = map ? `?map=${encodeURIComponent(map)}` : "";
+  return request(`/api/v1/presence${query}`);
 }

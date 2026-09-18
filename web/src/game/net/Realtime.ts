@@ -73,3 +73,47 @@ export function getEcho(): Echo<"reverb"> {
 
   return echo;
 }
+
+// Fase 19.5: segunda suscripción sobre el MISMO singleton de arriba -nunca
+// una segunda conexión Echo/Pusher-, esta vez sobre el canal PÚBLICO
+// "world" (ver backend/app/Events/PlayerMoved.php: new Channel('world'),
+// nunca Private/Presence -por eso getEcho().channel(), no .private()-,
+// sin ningún round-trip de autorización contra /broadcasting/auth).
+//
+// PlayerMoved::broadcastAs() devuelve el nombre customizado 'PlayerMoved'
+// -mismo motivo que ChatMessageCreated ya documentaba acá: un broadcast
+// name customizado exige el punto inicial en .listen(), si no Echo arma el
+// nombre completo por defecto (namespace + clase) y nunca matchea contra
+// lo que realmente emite Laravel.
+export interface PlayerMovedEvent {
+  character_id: number;
+  name: string;
+  level: number;
+  x: number;
+  y: number;
+  direction: "up" | "down" | "left" | "right";
+}
+
+// Devuelve una función de limpieza que abandona el canal "world" por
+// completo (getEcho().leaveChannel) -mismo patrón que ya usa
+// GlobalChat.astro para "chat"-. Nunca lanza: si Echo o la suscripción
+// fallan (ej. variables PUBLIC_REVERB_* no configuradas en este entorno),
+// Mundo debe poder seguir funcionando sin tiempo real, igual que el chat
+// sigue funcionando por polling si esto falla.
+export function subscribeWorld(onPlayerMoved: (event: PlayerMovedEvent) => void): () => void {
+  try {
+    const channel = getEcho().channel("world");
+    channel.listen(".PlayerMoved", onPlayerMoved);
+
+    return () => {
+      try {
+        getEcho().leaveChannel("world");
+      } catch (err) {
+        console.warn("No se pudo abandonar el canal world.", err);
+      }
+    };
+  } catch (err) {
+    console.warn("No se pudo suscribir al canal world -Mundo sigue funcionando sin tiempo real.", err);
+    return () => {};
+  }
+}
