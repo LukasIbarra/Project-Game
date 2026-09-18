@@ -93,4 +93,98 @@ class PlayerPresenceTest extends TestCase
 
         $this->assertSame('online', $presence->fresh()->status);
     }
+
+    // Fase 19.1: solo columnas + modelo -sin endpoint todavía (ese es
+    // F19.2)-. position_x/position_y usan spawn real de Mundo (470/560,
+    // ver WorldScene.ts) para que el test documente un valor con sentido,
+    // no un número cualquiera.
+
+    public function test_una_presencia_puede_tener_position_x(): void
+    {
+        $character = Character::factory()->create();
+
+        $presence = PlayerPresence::create([
+            'character_id' => $character->id,
+            'last_seen_at' => now(),
+            'position_x' => 470,
+        ]);
+
+        $this->assertSame(470.0, $presence->fresh()->position_x);
+    }
+
+    public function test_una_presencia_puede_tener_position_y(): void
+    {
+        $character = Character::factory()->create();
+
+        $presence = PlayerPresence::create([
+            'character_id' => $character->id,
+            'last_seen_at' => now(),
+            'position_y' => 560,
+        ]);
+
+        $this->assertSame(560.0, $presence->fresh()->position_y);
+    }
+
+    public function test_una_presencia_puede_tener_direction(): void
+    {
+        $character = Character::factory()->create();
+
+        $presence = PlayerPresence::create([
+            'character_id' => $character->id,
+            'last_seen_at' => now(),
+            'direction' => 'down',
+        ]);
+
+        $this->assertSame('down', $presence->fresh()->direction);
+    }
+
+    public function test_position_x_position_y_y_direction_aceptan_null(): void
+    {
+        $character = Character::factory()->create();
+
+        // Ni siquiera se mandan -mismo caso real: una presencia creada por
+        // un heartbeat fuera de Mundo, que todavía nunca mandó posición.
+        $presence = PlayerPresence::create([
+            'character_id' => $character->id,
+            'last_seen_at' => now(),
+        ]);
+
+        $fresh = $presence->fresh();
+        $this->assertNull($fresh->position_x);
+        $this->assertNull($fresh->position_y);
+        $this->assertNull($fresh->direction);
+    }
+
+    public function test_position_x_position_y_y_direction_se_persisten_juntos_y_la_relacion_sigue_funcionando(): void
+    {
+        $character = Character::factory()->create();
+
+        $presence = PlayerPresence::create([
+            'character_id' => $character->id,
+            'last_seen_at' => now(),
+            'current_map' => 'play',
+            'position_x' => 470,
+            'position_y' => 560,
+            'direction' => 'down',
+        ]);
+
+        $this->assertDatabaseHas('player_presence', [
+            'character_id' => $character->id,
+            'current_map' => 'play',
+            'position_x' => 470,
+            'position_y' => 560,
+            'direction' => 'down',
+        ]);
+
+        // Fase 19.1 no debe romper nada de lo que F18 ya garantizaba: la
+        // relación en ambos sentidos y el unique de character_id.
+        $this->assertTrue($character->presence->is($presence));
+        $this->assertTrue($presence->character->is($character));
+
+        $this->expectException(QueryException::class);
+        PlayerPresence::create([
+            'character_id' => $character->id,
+            'last_seen_at' => now(),
+        ]);
+    }
 }
