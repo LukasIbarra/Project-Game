@@ -21,4 +21,15 @@ enum GameMap: string
     case Ranking = 'ranking';
     case Shop = 'shop';
     case Social = 'social';
+
+    // Fase 19.2: mismo trim/lowercase que ya usaba
+    // SendPresenceHeartbeatRequest::prepareForValidation (sin tocar ese
+    // archivo -F18 queda intacto-), extraído acá para que GET /presence?map=
+    // lo reutilice sin reimplementar el criterio de normalización. Así
+    // "/Arena/", "Arena" y "arena" siguen siendo el mismo valor en
+    // cualquier punto de entrada que lo use.
+    public static function normalize(string $raw): string
+    {
+        return strtolower(trim($raw, "/ \t\n\r\0\x0B"));
+    }
 }

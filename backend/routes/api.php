@@ -130,4 +130,11 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     // "api" (60/min) ya alcanza para un heartbeat de ~1 request/25s-.
     Route::post('/presence/heartbeat', [PresenceController::class, 'heartbeat']);
     Route::get('/presence', [PresenceController::class, 'index']);
+
+    // Fase 19.2: posición en Mundo. Sin throttle dedicado todavía a
+    // propósito -F19.3 recién conecta el envío automático desde el
+    // frontend (con su propio throttle de ~300ms), así que no hay carga
+    // real que este endpoint reciba todavía; reconsiderar el limiter
+    // global cuando eso exista-.
+    Route::post('/presence/position', [PresenceController::class, 'position']);
 });
