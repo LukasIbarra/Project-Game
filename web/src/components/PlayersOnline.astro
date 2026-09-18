@@ -1,0 +1,225 @@
+---
+// Fase 18 Paso 3/4: panel de presencia, autocontenido -mismo criterio que
+// GlobalChat.astro (su propio ciclo de vida start/stop, nunca fetch
+// directo, todo vía ApiClient.ts). Panel HERMANO independiente de
+// GlobalChat (no un slot adentro suyo, ver AppShell.astro: #social-column
+// contiene a los dos) -mismo ancho (md:w-72) para que se vean como dos
+// cajas separadas y prolijas, no una sola dividida-. En mobile, el drawer
+// que ya abre/cierra GlobalChat.astro ahora opera sobre el wrapper que
+// contiene a ambos, así que este panel no necesita su propia lógica de
+// apertura -ver mobileDrawer en GlobalChat.astro-.
+//
+// Sin Reverb acá: heartbeat + polling HTTP únicamente (ver
+// docs/ROADMAP.md, decisión de Fase 18).
+---
+
+<section id="players-online" class="game-panel game-panel--notched flex shrink-0 flex-col md:w-72">
+  <header class="game-panel__header text-cyan shrink-0">
+    <span>Jugadores en línea</span>
+  </header>
+
+  <!-- max-h-40 ~ 4 filas de 2 columnas (8 jugadores) antes de que este
+       contenido -solo este, no el panel- empiece a scrollear. El panel en
+       sí nunca crece más allá de esto, y Chat Global (hermano, no hijo) no
+       se ve afectado en absoluto por cuántos jugadores haya acá. -->
+  <div class="max-h-40 overflow-y-auto px-3 py-2">
+    <p id="players-online-status" class="hidden text-[10px] text-muted"></p>
+    <ul id="players-online-list" class="grid grid-cols-2 gap-x-3 gap-y-2 text-xs"></ul>
+  </div>
+</section>
+
+<script>
+  import {
+    errorMessage,
+    getPresence,
+    sendPresenceHeartbeat,
+    type PresenceEntryDto,
+  } from "../game/net/ApiClient";
+  import { NAV_ITEMS } from "../game/navigation";
+
+  const HEARTBEAT_INTERVAL_MS = 25_000;
+  const PRESENCE_POLL_INTERVAL_MS = 11_000;
+
+  // Misma fuente que NavBar.astro -ni la lista de mapas válidos ni sus
+  // nombres amigables se inventan de nuevo acá (ver game/navigation.ts).
+  const MAP_LABELS: Record<string, string> = Object.fromEntries(
+    NAV_ITEMS.map((item) => [item.href.replace(/^\//, ""), item.label])
+  );
+  const KNOWN_MAPS = new Set(Object.keys(MAP_LABELS));
+
+  // Nunca manda "/arena" tal cual -el contrato del backend (App\Enums\
+  // GameMap) son identificadores planos ("arena"), ver
+  // SendPresenceHeartbeatRequest-. Si la ruta actual no es una página
+  // conocida (no debería pasar: PlayersOnline solo vive dentro de
+  // AppShell, y AppShell solo se usa en las páginas de NAV_ITEMS), no
+  // manda heartbeat en vez de mandar un valor inventado.
+  function resolveCurrentMap(): string | null {
+    const segment = window.location.pathname.replace(/^\/+|\/+$/g, "").toLowerCase();
+    return KNOWN_MAPS.has(segment) ? segment : null;
+  }
+
+  function mapLabel(mapId: string): string {
+    return MAP_LABELS[mapId] ?? mapId;
+  }
+
+  const root = document.getElementById("players-online")!;
+
+  // Guard contra doble-inicialización, mismo criterio que GlobalChat.astro.
+  if (root.dataset.presenceInitialized === "true") {
+    // no-op: ya inicializado
+  } else {
+    root.dataset.presenceInitialized = "true";
+    initPlayersOnline(root);
+  }
+
+  function initPlayersOnline(root: HTMLElement) {
+    const list = document.getElementById("players-online-list")!;
+    const status = document.getElementById("players-online-status")!;
+
+    function setStatus(text: string | null) {
+      if (!text) {
+        status.classList.add("hidden");
+        status.textContent = "";
+        return;
+      }
+      status.textContent = text;
+      status.classList.remove("hidden");
+    }
+
+    function renderPlayers(players: PresenceEntryDto[]) {
+      list.innerHTML = "";
+
+      if (players.length === 0) {
+        setStatus("No hay jugadores en línea.");
+        return;
+      }
+
+      setStatus(null);
+
+      for (const player of players) {
+        const item = document.createElement("li");
+        item.className = "flex flex-col gap-0.5";
+
+        const row = document.createElement("div");
+        row.className = "flex items-center gap-1.5";
+
+        const dot = document.createElement("span");
+        dot.className = "game-dot shrink-0";
+        row.appendChild(dot);
+
+        const name = document.createElement("span");
+        name.className = "flex-1 truncate text-pink";
+        name.textContent = player.name;
+        row.appendChild(name);
+
+        const level = document.createElement("span");
+        level.className = "shrink-0 text-muted";
+        level.textContent = `Nv. ${player.level}`;
+        row.appendChild(level);
+
+        item.appendChild(row);
+
+        const map = document.createElement("span");
+        map.className = "pl-3 text-[10px] text-muted";
+        map.textContent = mapLabel(player.current_map);
+        item.appendChild(map);
+
+        list.appendChild(item);
+      }
+    }
+
+    let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+    let presenceTimer: ReturnType<typeof setInterval> | null = null;
+    let heartbeatInFlight = false;
+    let presenceInFlight = false;
+    let stopped = false;
+
+    // Guard explícito contra heartbeats simultáneos: si el intervalo y un
+    // refresh de visibilitychange caen casi al mismo tiempo, el segundo se
+    // salta en vez de disparar un POST duplicado.
+    async function sendHeartbeat() {
+      if (heartbeatInFlight) return;
+      const map = resolveCurrentMap();
+      if (!map) return;
+
+      heartbeatInFlight = true;
+      try {
+        await sendPresenceHeartbeat(map);
+      } catch {
+        // Best-effort: un heartbeat perdido no rompe nada, el próximo
+        // intento (intervalo o el de al volver de "hidden") lo reintenta.
+      } finally {
+        heartbeatInFlight = false;
+      }
+    }
+
+    async function refreshPresence() {
+      if (presenceInFlight) return;
+      presenceInFlight = true;
+      try {
+        const players = await getPresence();
+        renderPlayers(players);
+      } catch (err) {
+        // Nunca deja de responder algo -si falla, el resto de AppShell
+        // (chat, HUD, nav) sigue funcionando exactamente igual.
+        setStatus(errorMessage(err, "No se pudo cargar la lista de jugadores."));
+      } finally {
+        presenceInFlight = false;
+      }
+    }
+
+    function startTimers() {
+      if (stopped) return;
+      if (heartbeatTimer === null) {
+        heartbeatTimer = setInterval(sendHeartbeat, HEARTBEAT_INTERVAL_MS);
+      }
+      if (presenceTimer === null) {
+        presenceTimer = setInterval(refreshPresence, PRESENCE_POLL_INTERVAL_MS);
+      }
+    }
+
+    function stopTimers() {
+      if (heartbeatTimer !== null) {
+        clearInterval(heartbeatTimer);
+        heartbeatTimer = null;
+      }
+      if (presenceTimer !== null) {
+        clearInterval(presenceTimer);
+        presenceTimer = null;
+      }
+    }
+
+    // Fase 18: nunca pagehide para marcar offline -la ventana de 60s sobre
+    // last_seen_at ya resuelve eso sola. pagehide acá es solo la misma red
+    // de seguridad barata contra timers colgados que ya usa GlobalChat.
+    window.addEventListener("pagehide", () => {
+      stopped = true;
+      stopTimers();
+    });
+
+    // Pestaña en background: pausa los dos intervalos -no tiene sentido
+    // seguir mandando heartbeats/polling de algo que nadie está mirando-.
+    // Al volver a estar visible: heartbeat + refresh inmediatos (no
+    // esperar al próximo tick) y recién ahí reanudar los intervalos.
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) {
+        stopTimers();
+        return;
+      }
+      sendHeartbeat();
+      refreshPresence();
+      startTimers();
+    });
+
+    async function start() {
+      setStatus("Cargando...");
+      await sendHeartbeat();
+      await refreshPresence();
+      if (!document.hidden) {
+        startTimers();
+      }
+    }
+
+    start();
+  }
+</script>

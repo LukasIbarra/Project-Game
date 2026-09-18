@@ -17,14 +17,15 @@ import GameButton from "../ui/GameButton.astro";
 import Icon from "../ui/Icon.astro";
 ---
 
-<!-- Mobile UX: en desktop (md+) es exactamente el mismo panel lateral de
-     siempre -sin cambios de comportamiento-. Por debajo de md arranca
-     "hidden" (cerrado por defecto, cero espacio reservado, no empuja el
-     <main>) y el mismo botón de chat del HUD lo abre como drawer flotante
-     -ver script: initGlobalChat() decide en el momento del click si
-     corresponde el colapso a riel de escritorio o el abrir/cerrar de
-     mobile, según el viewport actual-. El backdrop solo existe para poder
-     cerrar tocando afuera; en desktop nunca se muestra. -->
+<!-- Mobile UX: el "hidden"/drawer de mobile ya no vive en esta <section>
+     -Fase 18 lo movió al wrapper #social-column que la contiene junto con
+     PlayersOnline (ver AppShell.astro), para que ambos paneles abran/
+     cierren juntos sin un segundo drawer-. Acá adentro solo sigue viviendo
+     el colapso a riel angosto de escritorio (w-10/w-72, ver script:
+     initGlobalChat() decide en el momento del click si corresponde ese
+     colapso o el abrir/cerrar de mobile del wrapper, según el viewport
+     actual). El backdrop solo existe para poder cerrar el drawer tocando
+     afuera; en desktop nunca se muestra. -->
 <div
   id="global-chat-backdrop"
   class="fixed inset-0 z-30 hidden bg-black/70 md:hidden"
@@ -33,7 +34,7 @@ import Icon from "../ui/Icon.astro";
 
 <section
   id="global-chat"
-  class="game-panel game-panel--notched hidden min-h-0 max-h-full flex-col md:m-2 md:ml-0 md:flex md:w-64 md:shrink-0"
+  class="game-panel game-panel--notched flex min-h-0 flex-1 flex-col md:w-72"
 >
   <header class="game-panel__header text-cyan shrink-0">
     <span id="global-chat-title">Chat Global</span>
@@ -91,6 +92,15 @@ import Icon from "../ui/Icon.astro";
 
   const container = document.getElementById("global-chat")!;
   const backdrop = document.getElementById("global-chat-backdrop")!;
+
+  // Fase 18: PlayersOnline volvió a ser un panel hermano independiente
+  // (no un slot adentro de #global-chat, ver PlayersOnline.astro) -para
+  // que el drawer mobile siga abriendo/cerrando los DOS paneles juntos sin
+  // crear un segundo drawer, el abrir/cerrar en mobile pasa a operar sobre
+  // el wrapper que los contiene a ambos (#social-column, ver
+  // AppShell.astro) en vez de sobre #global-chat solo. El colapso a riel
+  // de escritorio (w-10/w-72, más abajo) sigue siendo exclusivo del chat.
+  const mobileDrawer = document.getElementById("social-column") ?? container;
 
   // Guard contra doble-inicialización: si este script llegara a correr
   // dos veces sobre el mismo DOM (ej. una futura navegación client-side),
@@ -295,23 +305,25 @@ import Icon from "../ui/Icon.astro";
       }
     });
 
-    // Mobile UX: abre/cierra el drawer completo (el panel entero estaba
-    // "hidden" por defecto). Nunca toca w-10/w-64 -esas clases son
-    // exclusivamente el colapso a riel de escritorio, de abajo-.
+    // Mobile UX: abre/cierra el drawer completo -ahora el wrapper
+    // #social-column, que contiene a PlayersOnline y a este panel como
+    // hermanos, ver mobileDrawer arriba-. Nunca toca w-10/w-72 -esas
+    // clases son exclusivamente el colapso a riel de escritorio, de abajo,
+    // y siguen operando sobre este panel solo-.
     function isMobileChatOpen(): boolean {
-      return container.classList.contains("fixed");
+      return mobileDrawer.classList.contains("fixed");
     }
 
     function openMobileChat(): void {
-      container.classList.remove("hidden");
-      container.classList.add(...MOBILE_OPEN_CLASSES);
+      mobileDrawer.classList.remove("hidden");
+      mobileDrawer.classList.add(...MOBILE_OPEN_CLASSES);
       backdrop.classList.remove("hidden");
       toggle.setAttribute("aria-label", "Cerrar chat");
     }
 
     function closeMobileChat(): void {
-      container.classList.add("hidden");
-      container.classList.remove(...MOBILE_OPEN_CLASSES);
+      mobileDrawer.classList.add("hidden");
+      mobileDrawer.classList.remove(...MOBILE_OPEN_CLASSES);
       backdrop.classList.add("hidden");
       toggle.setAttribute("aria-label", "Abrir chat");
     }
@@ -335,7 +347,7 @@ import Icon from "../ui/Icon.astro";
       // Colapsa a un riel angosto (solo el header) en vez de ocultar sin
       // liberar el espacio -así el contenido central puede usarlo.
       const collapsed = container.classList.toggle("w-10");
-      container.classList.toggle("w-64", !collapsed);
+      container.classList.toggle("w-72", !collapsed);
       body.classList.toggle("hidden", collapsed);
       title.classList.toggle("hidden", collapsed);
       toggleIcon.classList.toggle("-rotate-90", collapsed);

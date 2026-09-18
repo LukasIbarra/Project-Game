@@ -5,20 +5,13 @@
 // resto son placeholders hasta sus fases correspondientes. Los íconos
 // pasaron de emoji a la fuente central de Icon.astro (mismo lenguaje
 // visual en toda la app, reemplazable por pixel-art real sin tocar acá).
-import Icon, { type IconName } from "../ui/Icon.astro";
-
-const items: { href: string; label: string; icon: IconName }[] = [
-  { href: "/home", label: "Inicio", icon: "home" },
-  { href: "/house", label: "Casa", icon: "house" },
-  { href: "/pet", label: "Mascota", icon: "pet" },
-  { href: "/arena", label: "Arena", icon: "arena" },
-  { href: "/play", label: "Mundo", icon: "world" },
-  { href: "/social", label: "Social", icon: "social" },
-  { href: "/inventory", label: "Inventario", icon: "inventory" },
-  { href: "/shop", label: "Tienda", icon: "shop" },
-  { href: "/crafting", label: "Crafting", icon: "craft" },
-  { href: "/ranking", label: "Ranking", icon: "ranking" },
-];
+//
+// Fase 18: la lista de páginas se movió a game/navigation.ts (NAV_ITEMS)
+// para que Presence pueda reutilizarla al derivar current_map -este
+// archivo sigue siendo el único que la renderiza como menú, sin cambios
+// de comportamiento.
+import Icon from "../ui/Icon.astro";
+import { NAV_ITEMS } from "../../game/navigation";
 
 const currentPath = Astro.url.pathname;
 ---
@@ -33,7 +26,7 @@ const currentPath = Astro.url.pathname;
 
   <div class="flex flex-col gap-1">
     {
-      items.map((item) => {
+      NAV_ITEMS.map((item) => {
         const isActive = currentPath === item.href;
         return (
           <a
@@ -67,7 +60,7 @@ const currentPath = Astro.url.pathname;
   aria-label="Navegación"
 >
   {
-    items.map((item) => {
+    NAV_ITEMS.map((item) => {
       const isActive = currentPath === item.href;
       return (
         <a

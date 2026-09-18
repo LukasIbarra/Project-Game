@@ -31,32 +31,13 @@
 // para el resultado (siempre junto a texto, nunca solo el color verde/rojo),
 // "history" para el panel. Todos pixel-art -son conceptos RPG, no
 // controles de UI-, mismo criterio que arena/coin/craft.
-export type IconName =
-  | "home"
-  | "house"
-  | "pet"
-  | "arena"
-  | "world"
-  | "social"
-  | "inventory"
-  | "ranking"
-  | "chat"
-  | "bell"
-  | "logout"
-  | "coin"
-  | "craft"
-  | "shop"
-  | "attack"
-  | "shield"
-  | "victory"
-  | "defeat"
-  | "history"
-  | "chevron-down"
-  | "chevron-right"
-  | "toast-success"
-  | "toast-error"
-  | "toast-info"
-  | "toast-warning";
+// Fase 18: el tipo se movió a game/iconNames.ts (un .ts plano importando
+// otro .ts, sin la fricción de tsc con módulos .astro) y se re-exporta acá
+// tal cual -todo el resto de este archivo sigue exactamente igual, y los
+// consumidores existentes (`import { type IconName } from "./Icon.astro"`)
+// no necesitan ningún cambio.
+import type { IconName } from "../../game/iconNames";
+export type { IconName };
 
 interface Props {
   name: IconName;

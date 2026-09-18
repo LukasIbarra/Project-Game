@@ -14,6 +14,7 @@ import "../styles/theme.css";
 import Hud from "../components/hud/Hud.astro";
 import NavBar from "../components/nav/NavBar.astro";
 import GlobalChat from "../components/chat/GlobalChat.astro";
+import PlayersOnline from "../components/PlayersOnline.astro";
 import ToastHost from "../components/ui/ToastHost.astro";
 
 interface Props {
@@ -72,7 +73,18 @@ const { title } = Astro.props;
 				<slot />
 			</main>
 
-			<GlobalChat />
+			<!-- Fase 18: dos paneles HERMANOS independientes, apilados en la
+			     misma columna derecha (nunca uno dentro del otro, ver
+			     PlayersOnline.astro/GlobalChat.astro). "hidden"/"md:flex" acá
+			     -mismo patrón que ya usaba GlobalChat solo antes- es lo que
+			     arranca la columna cerrada en mobile y siempre visible en
+			     desktop; el drawer mobile (ver GlobalChat.astro, mobileDrawer)
+			     abre/cierra ESTE wrapper para que ambos paneles aparezcan y
+			     desaparezcan juntos, sin un segundo drawer. -->
+			<div id="social-column" class="hidden min-h-0 flex-col gap-2 md:m-2 md:ml-0 md:flex">
+				<PlayersOnline />
+				<GlobalChat />
+			</div>
 		</div>
 	</div>
 

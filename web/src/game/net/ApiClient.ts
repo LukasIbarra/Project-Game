@@ -679,3 +679,28 @@ export async function getActivityEvents(afterId?: number): Promise<ActivityEvent
   const query = afterId ? `?after_id=${afterId}` : "";
   return request(`/api/v1/activity${query}`);
 }
+
+// Fase 18: presencia de jugadores (HTTP + polling, sin Reverb -ver
+// docs/ROADMAP.md-). Mismo principio de siempre: el personaje SIEMPRE se
+// deriva del usuario autenticado del lado del backend, este cliente nunca
+// manda un character_id. `current_map` es el único dato que sale de acá,
+// ya resuelto a uno de los identificadores válidos de App\Enums\GameMap
+// (ver game/navigation.ts) antes de llamar a esta función.
+export interface PresenceEntryDto {
+  character_id: number;
+  name: string;
+  level: number;
+  current_map: string;
+  status: string;
+}
+
+export async function sendPresenceHeartbeat(currentMap: string): Promise<void> {
+  return request("/api/v1/presence/heartbeat", {
+    method: "POST",
+    body: JSON.stringify({ current_map: currentMap }),
+  });
+}
+
+export async function getPresence(): Promise<PresenceEntryDto[]> {
+  return request("/api/v1/presence");
+}
