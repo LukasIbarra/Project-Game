@@ -2,15 +2,28 @@
 
 namespace Tests\Feature;
 
+use App\Events\PlayerMoved;
 use App\Models\Character;
 use App\Models\PlayerPresence;
 use App\Models\User;
+use Illuminate\Broadcasting\Channel;
+use Illuminate\Broadcasting\PresenceChannel;
+use Illuminate\Broadcasting\PrivateChannel;
+use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\RateLimiter;
 use Tests\TestCase;
 
 // Fase 18, Paso 2: API de presencia -HTTP + polling, sin Reverb-. "Online"
 // se decide siempre por la ventana de 60s sobre last_seen_at, nunca por
 // `status` -varios tests de abajo lo verifican explícitamente-.
+//
+// Fase 19.3: PlayerMoved (Reverb, canal público "world") se agrega acá
+// abajo con Event::fake() -nunca conecta a un Reverb real en los tests,
+// solo verifica que el controller lo dispare (o no) en el momento correcto
+// y con el payload correcto-.
 class PresenceTest extends TestCase
 {
     use DatabaseTransactions;
@@ -702,5 +715,263 @@ class PresenceTest extends TestCase
         $response->assertOk();
         $ids = collect($response->json())->pluck('character_id')->all();
         $this->assertContains($character->id, $ids);
+    }
+
+    // ============================================================
+    // Fase 19.3: PlayerMoved (Reverb, canal público "world")
+    // ============================================================
+
+    public function test_posicion_valida_dispara_playermoved_con_el_payload_correcto(): void
+    {
+        Event::fake([PlayerMoved::class]);
+
+        [$character, $token] = $this->characterWithToken(['name' => 'Lukas', 'level' => 27]);
+        PlayerPresence::create(['character_id' => $character->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+        $this->withToken($token)->postJson('/api/v1/presence/position', [
+            'x' => 470, 'y' => 560, 'direction' => 'down',
+        ])->assertOk();
+
+        Event::assertDispatched(PlayerMoved::class, function (PlayerMoved $event) use ($character) {
+            // Objetivo #3: exactamente estas 6 claves -nunca coins/stats/
+            // appearance/inventory/equipment/last_seen_at/status/current_map.
+            return $event->broadcastWith() === [
+                'character_id' => $character->id,
+                'name' => 'Lukas',
+                'level' => 27,
+                'x' => 470.0,
+                'y' => 560.0,
+                'direction' => 'down',
+            ];
+        });
+    }
+
+    public function test_playermoved_usa_shouldbroadcastnow_nombre_explicito_y_canal_publico_world(): void
+    {
+        [$character, $token] = $this->characterWithToken();
+        PlayerPresence::create(['character_id' => $character->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+        Event::fake([PlayerMoved::class]);
+
+        $this->withToken($token)->postJson('/api/v1/presence/position', [
+            'x' => 1, 'y' => 1, 'direction' => 'up',
+        ])->assertOk();
+
+        Event::assertDispatched(PlayerMoved::class, function (PlayerMoved $event) {
+            $this->assertInstanceOf(\Illuminate\Contracts\Broadcasting\ShouldBroadcastNow::class, $event);
+            $this->assertSame('PlayerMoved', $event->broadcastAs());
+
+            $channel = $event->broadcastOn();
+            // Channel público real -ni PrivateChannel ni PresenceChannel
+            // (ambas EXTIENDEN Channel, por eso el chequeo negativo además
+            // del positivo), sin entrada en routes/channels.php.
+            $this->assertInstanceOf(Channel::class, $channel);
+            $this->assertNotInstanceOf(PrivateChannel::class, $channel);
+            $this->assertNotInstanceOf(PresenceChannel::class, $channel);
+            $this->assertSame('world', $channel->name);
+
+            return true;
+        });
+    }
+
+    public function test_no_emite_playermoved_si_x_esta_fuera_de_bounds(): void
+    {
+        [$character, $token] = $this->characterWithToken();
+        PlayerPresence::create(['character_id' => $character->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+        Event::fake([PlayerMoved::class]);
+
+        $this->withToken($token)->postJson('/api/v1/presence/position', [
+            'x' => -10, 'y' => 560, 'direction' => 'left',
+        ])->assertUnprocessable();
+
+        Event::assertNotDispatched(PlayerMoved::class);
+    }
+
+    public function test_no_emite_playermoved_si_y_esta_fuera_de_bounds(): void
+    {
+        [$character, $token] = $this->characterWithToken();
+        PlayerPresence::create(['character_id' => $character->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+        Event::fake([PlayerMoved::class]);
+
+        $this->withToken($token)->postJson('/api/v1/presence/position', [
+            'x' => 470, 'y' => 900, 'direction' => 'down',
+        ])->assertUnprocessable();
+
+        Event::assertNotDispatched(PlayerMoved::class);
+    }
+
+    public function test_no_emite_playermoved_si_direction_es_invalida(): void
+    {
+        [$character, $token] = $this->characterWithToken();
+        PlayerPresence::create(['character_id' => $character->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+        Event::fake([PlayerMoved::class]);
+
+        $this->withToken($token)->postJson('/api/v1/presence/position', [
+            'x' => 100, 'y' => 100, 'direction' => 'up-right',
+        ])->assertUnprocessable();
+
+        Event::assertNotDispatched(PlayerMoved::class);
+    }
+
+    public function test_no_emite_playermoved_si_no_existe_presencia(): void
+    {
+        [, $token] = $this->characterWithToken();
+
+        Event::fake([PlayerMoved::class]);
+
+        $this->withToken($token)->postJson('/api/v1/presence/position', [
+            'x' => 100, 'y' => 100, 'direction' => 'up',
+        ])->assertStatus(404);
+
+        Event::assertNotDispatched(PlayerMoved::class);
+    }
+
+    public function test_no_emite_playermoved_si_current_map_no_es_play(): void
+    {
+        [$character, $token] = $this->characterWithToken();
+        PlayerPresence::create(['character_id' => $character->id, 'last_seen_at' => now(), 'current_map' => 'home']);
+
+        Event::fake([PlayerMoved::class]);
+
+        $this->withToken($token)->postJson('/api/v1/presence/position', [
+            'x' => 100, 'y' => 100, 'direction' => 'up',
+        ])->assertStatus(409);
+
+        Event::assertNotDispatched(PlayerMoved::class);
+    }
+
+    public function test_no_emite_playermoved_si_el_movimiento_no_es_plausible(): void
+    {
+        [$character, $token] = $this->characterWithToken();
+        PlayerPresence::create([
+            'character_id' => $character->id,
+            'last_seen_at' => now()->subSecond(),
+            'current_map' => 'play',
+            'position_x' => 100,
+            'position_y' => 100,
+        ]);
+
+        Event::fake([PlayerMoved::class]);
+
+        $this->withToken($token)->postJson('/api/v1/presence/position', [
+            'x' => 1000, 'y' => 100, 'direction' => 'right',
+        ])->assertStatus(422);
+
+        Event::assertNotDispatched(PlayerMoved::class);
+    }
+
+    public function test_posicion_identica_actualiza_last_seen_at_pero_no_emite_evento_redundante(): void
+    {
+        [$character, $token] = $this->characterWithToken();
+        $presence = PlayerPresence::create([
+            'character_id' => $character->id,
+            'last_seen_at' => now()->subSeconds(10),
+            'current_map' => 'play',
+            'position_x' => 470,
+            'position_y' => 560,
+            'direction' => 'down',
+        ]);
+
+        Event::fake([PlayerMoved::class]);
+
+        $this->withToken($token)->postJson('/api/v1/presence/position', [
+            'x' => 470, 'y' => 560, 'direction' => 'down',
+        ])->assertOk();
+
+        Event::assertNotDispatched(PlayerMoved::class);
+        // La respuesta HTTP y last_seen_at siguen siendo correctos aunque
+        // no haya broadcast (objetivo #8).
+        $this->assertTrue($presence->fresh()->last_seen_at->greaterThan(now()->subSeconds(5)));
+    }
+
+    public function test_cambiar_solo_direction_sin_mover_x_y_si_dispara_playermoved(): void
+    {
+        // El objetivo #8 dice explícitamente "x, y, direction" -cambiar
+        // SOLO la dirección (girar sin moverse) es un cambio real, debe
+        // emitir igual.
+        [$character, $token] = $this->characterWithToken();
+        PlayerPresence::create([
+            'character_id' => $character->id,
+            'last_seen_at' => now(),
+            'current_map' => 'play',
+            'position_x' => 470,
+            'position_y' => 560,
+            'direction' => 'down',
+        ]);
+
+        Event::fake([PlayerMoved::class]);
+
+        $this->withToken($token)->postJson('/api/v1/presence/position', [
+            'x' => 470, 'y' => 560, 'direction' => 'up',
+        ])->assertOk();
+
+        Event::assertDispatched(PlayerMoved::class);
+    }
+
+    // --- Rate limit dedicado (objetivo #9) ---
+    // Override determinístico del limiter con un número chico -nunca
+    // cientos de requests reales-, restaurado en un finally para no
+    // afectar otros tests de esta clase (RateLimiter::for() vive en el
+    // mismo proceso de PHPUnit, no se resetea solo entre tests).
+
+    private function overridePresencePositionLimiter(int $perMinute): void
+    {
+        RateLimiter::for('presence.position', function (Request $request) use ($perMinute) {
+            return Limit::perMinute($perMinute)->by($request->user()?->id ?: $request->ip());
+        });
+    }
+
+    private function restorePresencePositionLimiter(): void
+    {
+        $this->overridePresencePositionLimiter(240);
+    }
+
+    public function test_un_usuario_puede_hacer_el_numero_esperado_de_requests_y_el_exceso_devuelve_429(): void
+    {
+        $this->overridePresencePositionLimiter(2);
+
+        try {
+            [$character, $token] = $this->characterWithToken();
+            PlayerPresence::create(['character_id' => $character->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+            $this->withToken($token)->postJson('/api/v1/presence/position', ['x' => 10, 'y' => 10, 'direction' => 'up'])
+                ->assertOk();
+            $this->withToken($token)->postJson('/api/v1/presence/position', ['x' => 11, 'y' => 10, 'direction' => 'up'])
+                ->assertOk();
+            $this->withToken($token)->postJson('/api/v1/presence/position', ['x' => 12, 'y' => 10, 'direction' => 'up'])
+                ->assertStatus(429);
+        } finally {
+            $this->restorePresencePositionLimiter();
+        }
+    }
+
+    public function test_el_rate_limit_no_se_comparte_entre_usuarios(): void
+    {
+        $this->overridePresencePositionLimiter(1);
+
+        try {
+            [$characterA, $tokenA] = $this->characterWithToken();
+            PlayerPresence::create(['character_id' => $characterA->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+            $this->withToken($tokenA)->postJson('/api/v1/presence/position', ['x' => 10, 'y' => 10, 'direction' => 'up'])
+                ->assertOk();
+            $this->withToken($tokenA)->postJson('/api/v1/presence/position', ['x' => 11, 'y' => 10, 'direction' => 'up'])
+                ->assertStatus(429);
+
+            $this->app['auth']->forgetGuards();
+
+            [$characterB, $tokenB] = $this->characterWithToken();
+            PlayerPresence::create(['character_id' => $characterB->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+            // El cupo de A está agotado, pero B tiene el suyo propio -no
+            // debe compartir el mismo contador (objetivo #9).
+            $this->withToken($tokenB)->postJson('/api/v1/presence/position', ['x' => 20, 'y' => 20, 'direction' => 'up'])
+                ->assertOk();
+        } finally {
+            $this->restorePresencePositionLimiter();
+        }
     }
 }

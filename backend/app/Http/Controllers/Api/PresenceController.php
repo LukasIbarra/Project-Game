@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\GameMap;
+use App\Events\PlayerMoved;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\SendPresenceHeartbeatRequest;
 use App\Http\Requests\SendPresencePositionRequest;
@@ -17,11 +18,16 @@ use Illuminate\Validation\Rule;
 // decide siempre por ventana temporal sobre last_seen_at, nunca por
 // `status` ni por un evento explícito de logout/pagehide.
 //
-// Fase 19.2: POST /position guarda x/y/direction sobre la MISMA fila -sin
-// Reverb todavía, eso es F19.3-. Nunca crea presencia (esa es
-// responsabilidad exclusiva del heartbeat) y nunca actualiza si el
-// personaje no está en Mundo -evita que una página como Home mande
-// posiciones de Mundo arbitrarias-.
+// Fase 19.2: POST /position guarda x/y/direction sobre la MISMA fila.
+// Nunca crea presencia (esa es responsabilidad exclusiva del heartbeat) y
+// nunca actualiza si el personaje no está en Mundo -evita que una página
+// como Home mande posiciones de Mundo arbitrarias-.
+//
+// Fase 19.3: la misma posición ya validada/persistida dispara PlayerMoved
+// por Reverb (canal público "world", ver app/Events/PlayerMoved.php) -solo
+// si algo realmente cambió (objetivo #8) y solo DESPUÉS de guardar, nunca
+// antes-. Sigue sin haber ninguna conexión con Phaser/WorldScene/
+// Realtime.ts todavía, eso es F19.4+.
 class PresenceController extends Controller
 {
     private const ONLINE_WINDOW_SECONDS = 60;
@@ -98,11 +104,18 @@ class PresenceController extends Controller
         $y = (float) $validated['y'];
         $direction = $validated['direction'];
 
+        // Se guardan ANTES del update de abajo -después de eso
+        // $presence->position_x ya sería el valor nuevo, no serviría ni
+        // para plausibilidad ni para el chequeo de "no cambió" (objetivo #8).
+        $previousX = $presence->position_x !== null ? (float) $presence->position_x : null;
+        $previousY = $presence->position_y !== null ? (float) $presence->position_y : null;
+        $previousDirection = $presence->direction;
+
         // Primer envío de este personaje: no hay posición anterior contra
         // la cual medir plausibilidad -se acepta si ya pasó bounds/
         // direction/mapa arriba (objetivo #5).
-        if ($presence->position_x !== null && $presence->position_y !== null) {
-            $distance = hypot($x - (float) $presence->position_x, $y - (float) $presence->position_y);
+        if ($previousX !== null && $previousY !== null) {
+            $distance = hypot($x - $previousX, $y - $previousY);
 
             // abs(): diffInMilliseconds() devuelve un valor CON signo
             // (negativo cuando el otro timestamp es pasado, que es el caso
@@ -133,11 +146,48 @@ class PresenceController extends Controller
             'last_seen_at' => now(),
         ]);
 
+        // Objetivo #8: last_seen_at YA se actualizó arriba pase lo que
+        // pase -esto solo decide si además vale la pena un broadcast. Un
+        // heartbeat de movimiento redundante (misma x/y/direction) no
+        // necesita avisarle a nadie más.
+        if ($this->positionChanged($previousX, $previousY, $previousDirection, $x, $y, $direction)) {
+            // Si Reverb está caído/mal configurado, la posición YA se
+            // persistió -mismo criterio que ChatController::store(), un
+            // fallo acá nunca debe convertir un 200 real en un 500.
+            try {
+                event(new PlayerMoved($character, $x, $y, $direction));
+            } catch (\Throwable $e) {
+                report($e);
+            }
+        }
+
         return response()->json([
             'x' => $presence->position_x,
             'y' => $presence->position_y,
             'direction' => $presence->direction,
         ]);
+    }
+
+    // Fase 19.3: epsilon chico en vez de comparación exacta de floats -
+    // position_x/position_y son decimal(8,2), diferencias por debajo de un
+    // centésimo de píxel no representan un movimiento real.
+    private function positionChanged(
+        ?float $previousX,
+        ?float $previousY,
+        ?string $previousDirection,
+        float $x,
+        float $y,
+        string $direction
+    ): bool {
+        if ($previousX === null || $previousY === null) {
+            return true;
+        }
+
+        $epsilon = 0.01;
+        $samePosition = abs($previousX - $x) < $epsilon && abs($previousY - $y) < $epsilon;
+        $sameDirection = $previousDirection === $direction;
+
+        return ! ($samePosition && $sameDirection);
     }
 
     // GET /v1/presence[?map=play] -jugadores vistos en los últimos 60s.
