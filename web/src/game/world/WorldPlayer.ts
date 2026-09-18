@@ -34,7 +34,11 @@ export interface AABB {
 // direcciones y sus columnas izquierdas son, píxel a píxel (0% de
 // diferencia medida), el espejo horizontal de las derechas — el asset ya
 // está construido así.
-type BaseDirection = "down" | "down-right" | "right" | "up-right" | "up";
+// Fase 19.4: exportado (antes privado de este archivo) -RemotePlayerEntity
+// necesita crear las mismas animaciones y aplicar el mismo criterio de
+// dirección/flip que el jugador local, sin duplicar esta tabla ni el
+// espejado. Nada de esto cambió de comportamiento, solo de visibilidad.
+export type BaseDirection = "down" | "down-right" | "right" | "up-right" | "up";
 
 const BASE_DIRECTION_ROW: Record<BaseDirection, number> = {
   down: 0,
@@ -50,18 +54,18 @@ const MIRRORED_DIRECTION: Record<Exclude<Direction, BaseDirection>, BaseDirectio
   "up-left": "up-right",
 };
 
-function resolveDirection(direction: Direction): { base: BaseDirection; flip: boolean } {
+export function resolveDirection(direction: Direction): { base: BaseDirection; flip: boolean } {
   if (direction in BASE_DIRECTION_ROW) {
     return { base: direction as BaseDirection, flip: false };
   }
   return { base: MIRRORED_DIRECTION[direction as Exclude<Direction, BaseDirection>], flip: true };
 }
 
-function animationKey(namespace: string, animation: AnimationName, base: BaseDirection): string {
+export function animationKey(namespace: string, animation: AnimationName, base: BaseDirection): string {
   return `${namespace}-${animation}-${base}`;
 }
 
-function ensureAnimations(
+export function ensureAnimations(
   scene: Phaser.Scene,
   namespace: string,
   animation: AnimationName,
@@ -83,6 +87,25 @@ function ensureAnimations(
       frameRate: asset.frameRate,
       repeat: -1,
     });
+  }
+}
+
+// Fase 19.4: extraído de WorldPlayer.play() (que ahora delega acá, ver
+// abajo) para que RemotePlayerEntity pueda aplicar exactamente el mismo
+// criterio de animación/flip sin reimplementarlo -única fuente de verdad
+// de "cómo se ve un sprite world-player mirando hacia X".
+export function applyDirectionalAnimation(
+  sprite: Phaser.GameObjects.Sprite,
+  namespace: string,
+  animation: AnimationName,
+  direction: Direction
+): void {
+  const { base, flip } = resolveDirection(direction);
+  sprite.setFlipX(flip);
+
+  const key = animationKey(namespace, animation, base);
+  if (sprite.anims.currentAnim?.key !== key) {
+    sprite.play(key);
   }
 }
 
@@ -134,13 +157,7 @@ export class WorldPlayer {
   }
 
   private play(animation: AnimationName, direction: Direction): void {
-    const { base, flip } = resolveDirection(direction);
-    this.sprite.setFlipX(flip);
-
-    const key = animationKey(this.namespace, animation, base);
-    if (this.sprite.anims.currentAnim?.key !== key) {
-      this.sprite.play(key);
-    }
+    applyDirectionalAnimation(this.sprite, this.namespace, animation, direction);
   }
 
   private footBox(x: number, y: number): AABB {

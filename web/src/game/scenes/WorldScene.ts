@@ -3,6 +3,7 @@ import type { Manifest } from "../assets/manifest";
 import { isTypingInFormField } from "../input/keyboardGuard";
 import { InteractionUI } from "../world/InteractionUI";
 import { Npc } from "../world/Npc";
+import { RemotePlayerEntity, type RemotePlayerData } from "../world/RemotePlayerEntity";
 import { WorldMap, type StructureInfo } from "../world/WorldMap";
 import { WorldPlayer } from "../world/WorldPlayer";
 import { TILED_MAP_KEY } from "../world/worldAssets";
@@ -32,6 +33,13 @@ export class WorldScene extends Phaser.Scene {
   private player!: WorldPlayer;
   private npcs: Npc[] = [];
   private ui!: InteractionUI;
+
+  // Fase 19.4: preparación para F19.5 -todavía sin ninguna conexión
+  // Realtime/Echo/WebSocket, nada llena este Map ni llama a los métodos de
+  // abajo todavía. RemotePlayerEntity en sí ya es correcta y usable de
+  // forma aislada (ver sus propios tests/build); esto solo deja el punto
+  // de integración listo para cuando F19.5 escuche el canal "world".
+  private readonly remotePlayers = new Map<number, RemotePlayerEntity>();
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key };
@@ -156,5 +164,29 @@ export class WorldScene extends Phaser.Scene {
       }
       this.ui.showDialogue(this.activeStructure.label, ["Próximamente."]);
     }
+  }
+
+  // Fase 19.4: preparación para F19.5, sin ningún llamador todavía -nada
+  // en esta fase conecta Realtime/Echo/WebSocket ni el canal "world". Deja
+  // listo el punto de integración (crear/actualizar/quitar una entidad por
+  // character_id) para que F19.5 solo tenga que invocarlos desde un
+  // listener de Echo, sin tocar WorldScene de nuevo para lo básico.
+  private upsertRemotePlayer(data: RemotePlayerData): void {
+    const existing = this.remotePlayers.get(data.characterId);
+    if (existing) {
+      existing.updateFromRemote(data);
+      existing.updateBasicInfo(data);
+      return;
+    }
+
+    this.remotePlayers.set(data.characterId, new RemotePlayerEntity(this, this.manifest, data));
+  }
+
+  private removeRemotePlayer(characterId: number): void {
+    const existing = this.remotePlayers.get(characterId);
+    if (!existing) return;
+
+    existing.destroy();
+    this.remotePlayers.delete(characterId);
   }
 }
