@@ -716,3 +716,25 @@ export async function getPresence(map?: string): Promise<PresenceEntryDto[]> {
   const query = map ? `?map=${encodeURIComponent(map)}` : "";
   return request(`/api/v1/presence${query}`);
 }
+
+// Fase 19.6: guarda x/y/direction del personaje autenticado en Mundo (ver
+// SendPresencePositionRequest: 0<=x<=1280, 0<=y<=800, direction solo
+// cardinal). La respuesta se tipa para que quien la llame pueda loguearla/
+// inspeccionarla, pero WorldScene nunca debe usarla para mover al jugador
+// local -el movimiento local es 100% inmediato, ver WorldPlayer.update().
+export interface PresencePositionResultDto {
+  x: number;
+  y: number;
+  direction: string;
+}
+
+export async function sendPresencePosition(
+  x: number,
+  y: number,
+  direction: "up" | "down" | "left" | "right"
+): Promise<PresencePositionResultDto> {
+  return request("/api/v1/presence/position", {
+    method: "POST",
+    body: JSON.stringify({ x, y, direction }),
+  });
+}

@@ -1,7 +1,7 @@
 import Phaser from "phaser";
 import type { Manifest } from "../assets/manifest";
 import { isTypingInFormField } from "../input/keyboardGuard";
-import { getCharacter, getPresence } from "../net/ApiClient";
+import { getCharacter, getPresence, sendPresencePosition } from "../net/ApiClient";
 import { subscribeWorld, type PlayerMovedEvent } from "../net/Realtime";
 import { getCachedPlayerState } from "../state/playerState";
 import { InteractionUI } from "../world/InteractionUI";
@@ -15,6 +15,13 @@ import { TILED_MAP_KEY } from "../world/worldAssets";
 // -misma frecuencia de reconciliación que el resto de Presence, sin
 // inventar un ritmo distinto para Mundo.
 const PRESENCE_RECONCILE_INTERVAL_MS = 11_000;
+
+// Fase 19.6: ~300ms pedido explícitamente (≈3.3 req/s, ≈200/min en
+// movimiento continuo -bien por debajo del limiter presence.position,
+// 240/min-). Nunca por frame: Phaser corre update() ~60 veces por
+// segundo, un POST por frame saturaría el limiter y el servidor sin
+// aportar nada (la interpolación remota ya suaviza visualmente).
+const POSITION_SYNC_INTERVAL_MS = 300;
 
 interface WorldSceneData {
   manifest: Manifest;
@@ -50,6 +57,18 @@ export class WorldScene extends Phaser.Scene {
   private localCharacterId: number | null = null;
   private worldUnsubscribe: (() => void) | null = null;
   private reconcileTimer: ReturnType<typeof setInterval> | null = null;
+  private destroyed = false;
+
+  // Fase 19.6: sincronización de la posición LOCAL -ver syncLocalPosition().
+  // Nunca un setInterval propio: se apoya en el mismo loop de update() que
+  // ya corre Phaser, así que no hay un timer extra que limpiar (ver
+  // objetivo #27) más allá de lo que ya cubre teardownRemotePlayers().
+  private positionSyncAccumulatorMs = 0;
+  private wasMoving = false;
+  private lastSyncedPosition: { x: number; y: number; direction: WorldDirection } | null = null;
+  // Objetivo #28: nunca dos POST /presence/position en vuelo a la vez.
+  private positionSendInFlight = false;
+  private pendingPositionSend: { x: number; y: number; direction: WorldDirection } | null = null;
 
   private cursors!: Phaser.Types.Input.Keyboard.CursorKeys;
   private wasd!: { W: Phaser.Input.Keyboard.Key; A: Phaser.Input.Keyboard.Key; S: Phaser.Input.Keyboard.Key; D: Phaser.Input.Keyboard.Key };
@@ -122,6 +141,19 @@ export class WorldScene extends Phaser.Scene {
         },
         deltaSeconds
       );
+
+      // Fase 19.6: capa ADICIONAL sobre el movimiento ya aplicado arriba
+      // -nunca antes-. El jugador local ya se movió de verdad; esto solo
+      // decide si corresponde avisarle al backend, nunca condiciona el
+      // movimiento en sí (ver objetivo #2/#13).
+      this.syncLocalPosition(delta);
+    }
+
+    // Interpolación de jugadores remotos: corre siempre, incluso con un
+    // diálogo abierto -que otro jugador se mueva no depende de qué esté
+    // haciendo el jugador local en este momento.
+    for (const remote of this.remotePlayers.values()) {
+      remote.update(delta);
     }
 
     this.updateInteractions();
@@ -220,6 +252,12 @@ export class WorldScene extends Phaser.Scene {
     // corre después periódicamente, ver más abajo.
     await this.reconcilePresence();
 
+    // Objetivo #12: el jugador local puede entrar a Mundo y no moverse
+    // nunca -igual debe terminar con una posición válida en Presence, no
+    // solo cuando camina-. Fire-and-forget: no bloquea la suscripción a
+    // Realtime ni el resto del bootstrap.
+    void this.sendInitialPosition();
+
     // Objetivo #4/#5: un único listener para todo el ciclo de vida de la
     // escena, nunca una segunda conexión Echo (subscribeWorld reusa el
     // singleton de Realtime.ts).
@@ -301,6 +339,8 @@ export class WorldScene extends Phaser.Scene {
   // colgada si la escena termina. Idempotente a propósito: si Phaser
   // llegara a disparar ambos eventos, correr esto dos veces es inofensivo.
   private teardownRemotePlayers(): void {
+    this.destroyed = true;
+
     if (this.reconcileTimer !== null) {
       clearInterval(this.reconcileTimer);
       this.reconcileTimer = null;
@@ -315,6 +355,127 @@ export class WorldScene extends Phaser.Scene {
       entity.destroy();
     }
     this.remotePlayers.clear();
+  }
+
+  // ============================================================
+  // Fase 19.6: sincronización de la posición del jugador LOCAL.
+  // ============================================================
+
+  // Objetivo #12: intento acotado (2 llamadas, no un retry general) para
+  // que el jugador termine con una posición válida en Presence aunque
+  // nunca camine. El primer intento puede fallar por una carrera real con
+  // el heartbeat de PlayersOnline.astro (que recién establece
+  // current_map="play" en player_presence; POST /position devuelve 409
+  // hasta que eso exista) -un único reintento corto alcanza para cerrar
+  // esa ventana sin inventar un mecanismo de reintento complejo.
+  private async sendInitialPosition(): Promise<void> {
+    const attempt = async (): Promise<boolean> => {
+      if (this.destroyed) return true; // no seguir intentando si la escena ya terminó
+      try {
+        const direction = this.player.direction as WorldDirection;
+        await sendPresencePosition(this.player.x, this.player.y, direction);
+        this.lastSyncedPosition = { x: this.player.x, y: this.player.y, direction };
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    if (await attempt()) return;
+
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    if (!(await attempt())) {
+      console.warn(
+        "No se pudo sincronizar la posición inicial en Mundo -se sincronizará en cuanto el jugador se mueva."
+      );
+    }
+  }
+
+  // Objetivo #2/#6/#7/#8/#9: capa de sincronización sobre el movimiento ya
+  // aplicado por WorldPlayer -nunca lo condiciona ni espera su respuesta.
+  // Llamado una vez por frame (con el jugador local activo, ver update()),
+  // decide si corresponde avisar al backend según 3 transiciones:
+  //   - empieza a moverse / cambia de dirección en movimiento → inmediato
+  //   - se detiene → actualización final inmediata
+  //   - sigue moviéndose en la misma dirección → cada ~300ms
+  private syncLocalPosition(deltaMs: number): void {
+    const moving = this.player.moving;
+    const direction = this.player.direction as WorldDirection;
+    const x = this.player.x;
+    const y = this.player.y;
+
+    const justStarted = moving && !this.wasMoving;
+    const justStopped = !moving && this.wasMoving;
+    this.wasMoving = moving;
+
+    if (!moving) {
+      if (justStopped) {
+        this.positionSyncAccumulatorMs = 0;
+        this.trySendPosition(x, y, direction); // objetivo #8
+      }
+      return; // quieto: sin requests continuos (objetivo #7)
+    }
+
+    const directionChanged = this.lastSyncedPosition !== null && this.lastSyncedPosition.direction !== direction;
+
+    if (justStarted || directionChanged) {
+      this.positionSyncAccumulatorMs = 0;
+      this.trySendPosition(x, y, direction); // objetivo #7/#9
+      return;
+    }
+
+    this.positionSyncAccumulatorMs += deltaMs;
+    if (this.positionSyncAccumulatorMs >= POSITION_SYNC_INTERVAL_MS) {
+      this.positionSyncAccumulatorMs = 0;
+      this.trySendPosition(x, y, direction);
+    }
+  }
+
+  private trySendPosition(x: number, y: number, direction: WorldDirection): void {
+    // Objetivo #8: no duplicar si ya se acaba de mandar exactamente esto.
+    if (
+      this.lastSyncedPosition &&
+      this.lastSyncedPosition.x === x &&
+      this.lastSyncedPosition.y === y &&
+      this.lastSyncedPosition.direction === direction
+    ) {
+      return;
+    }
+    this.lastSyncedPosition = { x, y, direction };
+
+    if (this.positionSendInFlight) {
+      // Objetivo #28: nunca dos POST simultáneos -se guarda únicamente el
+      // último estado deseado, nunca se acumula una cola.
+      this.pendingPositionSend = { x, y, direction };
+      return;
+    }
+
+    void this.sendPositionNow(x, y, direction);
+  }
+
+  private async sendPositionNow(x: number, y: number, direction: WorldDirection): Promise<void> {
+    this.positionSendInFlight = true;
+    try {
+      // Objetivo #13: la respuesta NUNCA controla al jugador local -acá
+      // ni siquiera se usa su valor, solo importa si la promesa resolvió
+      // o rechazó.
+      await sendPresencePosition(x, y, direction);
+    } catch (err) {
+      // Objetivo #14/#15: nunca congela ni corrige al jugador local -el
+      // movimiento local ya ocurrió, esto es best-effort. Cubre tanto
+      // errores de red como un 422 de plausibilidad del backend; la
+      // próxima posición real (o el próximo tick de 300ms) reintenta con
+      // datos frescos, nunca con esta misma posición rechazada.
+      console.warn("No se pudo sincronizar la posición del jugador local.", err);
+    } finally {
+      this.positionSendInFlight = false;
+
+      if (!this.destroyed && this.pendingPositionSend) {
+        const next = this.pendingPositionSend;
+        this.pendingPositionSend = null;
+        void this.sendPositionNow(next.x, next.y, next.direction);
+      }
+    }
   }
 
   // Crea o actualiza una entidad remota por character_id -mismo camino

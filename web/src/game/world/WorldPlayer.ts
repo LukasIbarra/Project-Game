@@ -125,8 +125,8 @@ export interface FootBoxConfig {
 
 export class WorldPlayer {
   readonly sprite: Phaser.GameObjects.Sprite;
-  private direction: Direction = "down";
-  private moving = false;
+  private _direction: Direction = "down";
+  private _moving = false;
   private readonly foot: FootBoxConfig;
 
   constructor(
@@ -156,6 +156,18 @@ export class WorldPlayer {
     return this.sprite.y;
   }
 
+  // Fase 19.6: WorldScene necesita leer esto cada frame para decidir
+  // cuándo sincronizar posición al backend -mismo criterio que x/y de
+  // arriba, getters de solo lectura sobre el estado real, nunca una copia
+  // que se pueda desincronizar.
+  get direction(): Direction {
+    return this._direction;
+  }
+
+  get moving(): boolean {
+    return this._moving;
+  }
+
   private play(animation: AnimationName, direction: Direction): void {
     applyDirectionalAnimation(this.sprite, this.namespace, animation, direction);
   }
@@ -182,9 +194,9 @@ export class WorldPlayer {
     else if (input.up) dy = -1;
     else if (input.down) dy = 1;
 
-    this.moving = dx !== 0 || dy !== 0;
+    this._moving = dx !== 0 || dy !== 0;
 
-    if (this.moving) {
+    if (this._moving) {
       const stepX = dx * SPEED * deltaSeconds;
       const stepY = dy * SPEED * deltaSeconds;
 
@@ -198,12 +210,12 @@ export class WorldPlayer {
         this.sprite.y += stepY;
       }
 
-      if (dx < 0) this.direction = "left";
-      else if (dx > 0) this.direction = "right";
-      else if (dy < 0) this.direction = "up";
-      else if (dy > 0) this.direction = "down";
+      if (dx < 0) this._direction = "left";
+      else if (dx > 0) this._direction = "right";
+      else if (dy < 0) this._direction = "up";
+      else if (dy > 0) this._direction = "down";
     }
 
-    this.play(this.moving ? "walk" : "idle", this.direction);
+    this.play(this._moving ? "walk" : "idle", this._direction);
   }
 }

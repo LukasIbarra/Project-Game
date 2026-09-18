@@ -131,11 +131,22 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::post('/presence/heartbeat', [PresenceController::class, 'heartbeat']);
     Route::get('/presence', [PresenceController::class, 'index']);
 
-    // Fase 19.3: throttle dedicado propio (240/min por usuario, ver
-    // AppServiceProvider::boot()) -el global "api" (60/min) le queda
-    // corto al envío automático de ~300ms que conectará F19.4+ (~200
-    // req/min por jugador activo).
-    Route::middleware('throttle:presence.position')->group(function () {
-        Route::post('/presence/position', [PresenceController::class, 'position']);
-    });
+    // Fase 19.6 HOTFIX: throttle:api (60/min, aplicado globalmente a TODA
+    // routes/api.php desde bootstrap/app.php -> $middleware->throttleApi())
+    // se apilaba ADEMÁS de throttle:presence.position acá (confirmado con
+    // `route:list -vv`, que expande los grupos de middleware) -dos
+    // limiters activos a la vez sobre la MISMA request-. El tráfico de
+    // movimiento (~200 req/min) agotaba en segundos el balde de 60/min que
+    // esta misma ruta comparte con /presence, /presence/heartbeat y
+    // /chat/messages para ese usuario -por eso esas otras rutas también
+    // empezaban a devolver 429, sin que su propio tráfico las hubiera
+    // superado nunca-. withoutMiddleware() saca a esta ruta del balde
+    // compartido; el límite real de movimiento queda 100% definido por
+    // presence.position (240/min, ver AppServiceProvider::boot()), sin
+    // interferir con el resto de la API.
+    Route::middleware('throttle:presence.position')
+        ->withoutMiddleware('throttle:api')
+        ->group(function () {
+            Route::post('/presence/position', [PresenceController::class, 'position']);
+        });
 });

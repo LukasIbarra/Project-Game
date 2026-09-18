@@ -974,4 +974,103 @@ class PresenceTest extends TestCase
             $this->restorePresencePositionLimiter();
         }
     }
+
+    // ============================================================
+    // Fase 19.6 HOTFIX: presence.position ya no comparte el limiter
+    // global "api" con el resto de las rutas -confirmado con
+    // `route:list -vv` antes del fix: la ruta tenía apilados
+    // ThrottleRequests:api (60/min) Y ThrottleRequests:presence.position
+    // (240/min) a la vez, y ese balde de 60/min era el MISMO que usan
+    // /presence, /presence/heartbeat y /chat/messages para ese usuario.
+    // routes/api.php ahora excluye explícitamente "throttle:api" solo de
+    // /presence/position vía Route::withoutMiddleware().
+    // ============================================================
+
+    private function overrideApiLimiter(int $perMinute): void
+    {
+        RateLimiter::for('api', function (Request $request) use ($perMinute) {
+            return Limit::perMinute($perMinute)->by($request->user()?->id ?: $request->ip());
+        });
+    }
+
+    private function restoreApiLimiter(): void
+    {
+        $this->overrideApiLimiter(60);
+    }
+
+    public function test_position_permite_su_numero_esperado_de_requests_dentro_de_su_limite_especifico(): void
+    {
+        $this->overridePresencePositionLimiter(5);
+
+        try {
+            [$character, $token] = $this->characterWithToken();
+            PlayerPresence::create(['character_id' => $character->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+            for ($i = 0; $i < 5; $i++) {
+                $this->withToken($token)->postJson('/api/v1/presence/position', [
+                    'x' => 10 + $i, 'y' => 10, 'direction' => 'up',
+                ])->assertOk();
+            }
+        } finally {
+            $this->restorePresencePositionLimiter();
+        }
+    }
+
+    public function test_trafico_de_position_no_consume_el_limite_compartido_de_presence_heartbeat_ni_chat(): void
+    {
+        // Overrides chicos y deterministas -nunca cientos de requests
+        // reales-: si position TODAVÍA compartiera el balde "api" (el bug
+        // que corrige este hotfix), la 4ta request de position ya hubiera
+        // devuelto 429 acá -agotaría el "api" overrideado a 3/min antes de
+        // llegar a su propio límite de 10/min-.
+        $this->overrideApiLimiter(3);
+        $this->overridePresencePositionLimiter(10);
+
+        try {
+            [$character, $token] = $this->characterWithToken();
+            PlayerPresence::create(['character_id' => $character->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+            for ($i = 0; $i < 5; $i++) {
+                $this->withToken($token)->postJson('/api/v1/presence/position', [
+                    'x' => 10 + $i, 'y' => 10, 'direction' => 'up',
+                ])->assertOk();
+            }
+
+            // El balde "api" (3/min) de este usuario debe seguir intacto
+            // -el tráfico de position nunca lo tocó- así que estas rutas,
+            // que sí dependen de "api", deben responder normalmente.
+            $this->withToken($token)->getJson('/api/v1/presence')->assertOk();
+            $this->withToken($token)->postJson('/api/v1/presence/heartbeat', ['current_map' => 'play'])
+                ->assertNoContent();
+            $this->withToken($token)->getJson('/api/v1/chat/messages')->assertOk();
+        } finally {
+            $this->restoreApiLimiter();
+            $this->restorePresencePositionLimiter();
+        }
+    }
+
+    public function test_al_superar_el_limite_de_position_las_otras_rutas_protegidas_siguen_funcionando(): void
+    {
+        $this->overridePresencePositionLimiter(2);
+
+        try {
+            [$character, $token] = $this->characterWithToken();
+            PlayerPresence::create(['character_id' => $character->id, 'last_seen_at' => now(), 'current_map' => 'play']);
+
+            $this->withToken($token)->postJson('/api/v1/presence/position', ['x' => 10, 'y' => 10, 'direction' => 'up'])
+                ->assertOk();
+            $this->withToken($token)->postJson('/api/v1/presence/position', ['x' => 11, 'y' => 10, 'direction' => 'up'])
+                ->assertOk();
+            $this->withToken($token)->postJson('/api/v1/presence/position', ['x' => 12, 'y' => 10, 'direction' => 'up'])
+                ->assertStatus(429);
+
+            // position ya excedió SU límite propio, pero el resto de la
+            // API para este mismo usuario sigue funcionando bajo el suyo.
+            $this->withToken($token)->getJson('/api/v1/presence')->assertOk();
+            $this->withToken($token)->postJson('/api/v1/presence/heartbeat', ['current_map' => 'play'])
+                ->assertNoContent();
+        } finally {
+            $this->restorePresencePositionLimiter();
+        }
+    }
 }
