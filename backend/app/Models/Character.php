@@ -66,6 +66,12 @@ class Character extends Model
         return $this->hasOne(Room::class);
     }
 
+    // Fase 18: presencia (heartbeat HTTP + polling, sin Reverb).
+    public function presence(): HasOne
+    {
+        return $this->hasOne(PlayerPresence::class);
+    }
+
     public function attackedCombatLogs(): HasMany
     {
         return $this->hasMany(CombatLog::class, 'attacker_character_id');
