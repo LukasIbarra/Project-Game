@@ -16,6 +16,8 @@ web/node_modules/
 web/dist/
 web/.astro/
 web/.env
+web/.env.local
+web/.env.*.local
 # Generado por scripts/generate-asset-versions.mjs en cada build (hook
 # prebuild) -nunca a mano, no tiene sentido versionarlo en git-.
 web/public/asset-versions.json
