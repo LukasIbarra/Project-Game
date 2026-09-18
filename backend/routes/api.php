@@ -11,6 +11,7 @@ use App\Http\Controllers\Api\InventoryController;
 use App\Http\Controllers\Api\ItemController;
 use App\Http\Controllers\Api\PetController;
 use App\Http\Controllers\Api\PetExpeditionController;
+use App\Http\Controllers\Api\PresenceController;
 use App\Http\Controllers\Api\RankingController;
 use App\Http\Controllers\Api\RecipeController;
 use App\Http\Controllers\Api\RoomController;
@@ -122,4 +123,11 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::middleware('throttle:20,1')->group(function () {
         Route::post('/chat/messages', [ChatController::class, 'store']);
     });
+
+    // Fase 18: presencia de jugadores -HTTP + polling, sin Reverb-. Sin
+    // throttle dedicado: mismo criterio que /character, /inventory, etc.
+    // -no maneja contenido de usuario ni economía, el limiter global
+    // "api" (60/min) ya alcanza para un heartbeat de ~1 request/25s-.
+    Route::post('/presence/heartbeat', [PresenceController::class, 'heartbeat']);
+    Route::get('/presence', [PresenceController::class, 'index']);
 });
