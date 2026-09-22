@@ -46,5 +46,10 @@ class DatabaseSeeder extends Seeder
         $this->call(ArenaEquipmentSeeder::class);
         $this->call(PetSeeder::class);
         $this->call(PetNarrativeEventSeeder::class);
+
+        // Fase 20: species/food no dependen de personajes, pero
+        // PetFoodItemSeeder sí necesita que los items ya existan (arriba).
+        $this->call(PetSpeciesSeeder::class);
+        $this->call(PetFoodItemSeeder::class);
     }
 }

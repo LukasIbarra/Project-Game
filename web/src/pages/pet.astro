@@ -24,6 +24,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 				/>
 				<div>
 					<p id="pet-name" class="m-0 text-sm text-text">Cargando…</p>
+					<p id="pet-species" class="m-0 font-mono text-[0.65rem] text-cyan"></p>
 					<p id="pet-level" class="m-0 font-mono text-[0.65rem] uppercase tracking-wide text-muted"></p>
 				</div>
 				<div class="flex w-full flex-col gap-1">
@@ -41,6 +42,24 @@ import GamePanel from "../components/ui/GamePanel.astro";
 					<div class="h-[0.4rem] w-full border border-outline-strong bg-bg">
 						<div id="pet-energy-bar" class="h-full bg-cyan" style="width:0%"></div>
 					</div>
+				</div>
+
+				<!-- Fase 20: alimentación -mínimo necesario, sin pantalla
+				     propia. La lista sale del catálogo real (GET /pet/food),
+				     nunca hardcodeada acá. -->
+				<div class="flex w-full flex-col gap-1 border-t border-outline-strong pt-3">
+					<p class="m-0 font-mono text-[0.6rem] uppercase tracking-wide text-muted">Alimentar</p>
+					<select
+						id="feed-select"
+						class="w-full border border-outline-strong bg-bg px-2 py-1 text-xs text-text focus:border-cyan focus:outline-none"
+					></select>
+					<button
+						id="feed-button"
+						type="button"
+						class="w-full border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan"
+					>
+						Alimentar
+					</button>
 				</div>
 			</GamePanel>
 
@@ -103,10 +122,12 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	import {
 		ApiError,
 		claimPetExpedition,
+		feedPet,
 		getItemCatalog,
 		getPet,
 		getPetDestinations,
 		getPetEvents,
+		getPetFood,
 		startPetExpedition,
 		type ItemDto,
 		type Pet,
@@ -115,6 +136,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 
 	const errorEl = document.getElementById("pet-error")!;
 	const nameEl = document.getElementById("pet-name")!;
+	const speciesEl = document.getElementById("pet-species")!;
 	const levelEl = document.getElementById("pet-level")!;
 	const healthBarEl = document.getElementById("pet-health-bar")!;
 	const healthLabelEl = document.getElementById("pet-health-label")!;
@@ -251,7 +273,8 @@ import GamePanel from "../components/ui/GamePanel.astro";
 
 	function renderPet(pet: Pet): void {
 		nameEl.textContent = pet.name;
-		levelEl.textContent = `Nv. ${pet.level}`;
+		speciesEl.textContent = pet.species_name;
+		levelEl.textContent = `Nv. ${pet.level} · ${pet.experience} EXP`;
 
 		healthBarEl.style.width = `${(pet.health / pet.max_health) * 100}%`;
 		healthLabelEl.textContent = `${pet.health} / ${pet.max_health}`;
@@ -433,6 +456,45 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		}
 	}
 
+	// Fase 20: alimentación. La lista de opciones sale una sola vez del
+	// catálogo real (nunca hardcodeada) -si el jugador no tiene el item en
+	// inventario, el backend ya devuelve un error claro (422) que se
+	// muestra por toast, igual que cualquier otra acción puntual de esta
+	// página (ver claimButton más abajo).
+	const feedSelect = document.getElementById("feed-select") as HTMLSelectElement;
+	const feedButton = document.getElementById("feed-button") as HTMLButtonElement;
+
+	async function loadFoodOptions(): Promise<void> {
+		try {
+			const food = await getPetFood();
+			feedSelect.innerHTML = food
+				.map((entry) => `<option value="${entry.item_key}">${entry.item_name} (+${entry.exp_value} EXP)</option>`)
+				.join("");
+			feedButton.disabled = food.length === 0;
+		} catch {
+			// Sin catálogo de comida disponible -el botón queda deshabilitado,
+			// no bloquea el resto de la página (mismo criterio que el
+			// catálogo de items en init()).
+			feedButton.disabled = true;
+		}
+	}
+
+	feedButton.addEventListener("click", async () => {
+		const foodKey = feedSelect.value;
+		if (!foodKey) return;
+
+		feedButton.disabled = true;
+		try {
+			const { leveled_up } = await feedPet(foodKey);
+			toast.success(leveled_up ? "¡Tu mascota subió de nivel!" : "Tu mascota disfrutó la comida.");
+			await refresh();
+		} catch (err) {
+			toast.error(messageFrom(err, "No se pudo alimentar a la mascota."));
+		} finally {
+			feedButton.disabled = false;
+		}
+	});
+
 	claimButton.addEventListener("click", async () => {
 		claimButton.disabled = true;
 		try {
@@ -460,6 +522,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		} catch {
 			// Si el catálogo falla, se muestran las item_key crudas -no bloquea el resto de la página.
 		}
+		await loadFoodOptions();
 		await refresh();
 	}
 

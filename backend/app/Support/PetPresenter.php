@@ -14,10 +14,18 @@ class PetPresenter
 {
     public static function pet(Pet $pet, ?PetExpedition $expedition): array
     {
+        $pet->loadMissing('species');
+
         return [
             'id' => $pet->id,
             'name' => $pet->name,
-            'species' => $pet->key,
+            // Fase 20: antes era $pet->key (string suelto); ahora sale de
+            // la relación real a pet_species. 'species' se mantiene con
+            // el mismo nombre/forma que ya consumía el frontend (la
+            // key técnica); 'species_name' es nuevo, para mostrar un
+            // nombre amigable sin que el frontend tenga que resolverlo.
+            'species' => $pet->species->key,
+            'species_name' => $pet->species->name,
             'level' => $pet->level,
             'experience' => $pet->exp,
             'health' => $pet->health,

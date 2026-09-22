@@ -14,7 +14,7 @@ class Pet extends Model
 
     protected $fillable = [
         'character_id',
-        'key',
+        'species_id',
         'name',
         'level',
         'exp',
@@ -35,6 +35,13 @@ class Pet extends Model
     public function character(): BelongsTo
     {
         return $this->belongsTo(Character::class);
+    }
+
+    // Fase 20: reemplaza el antiguo `key` string suelto -ver migración
+    // 2026_09_19_000002_add_species_id_to_pets_table-.
+    public function species(): BelongsTo
+    {
+        return $this->belongsTo(PetSpecies::class, 'species_id');
     }
 
     public function expeditions(): HasMany

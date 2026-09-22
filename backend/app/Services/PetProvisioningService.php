@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Enums\PetStatus;
 use App\Models\Character;
 use App\Models\Pet;
+use App\Models\PetSpecies;
 use Illuminate\Database\QueryException;
 
 // Fase 7, sección 2: todo Character nuevo recibe una mascota (mismo
@@ -15,6 +16,10 @@ use Illuminate\Database\QueryException;
 // `pets.character_id` es UNIQUE (pre-flight), así que una carrera entre
 // dos requests como mucho dispara una excepción de duplicado en una de
 // las dos, nunca dos mascotas.
+//
+// Fase 20: 'starter' pasó de ser un string suelto en `pets.key` a una
+// fila real de `pet_species` (creada por la migración de backfill,
+// 2026_09_19_000002) -este service ya no inventa el valor, lo busca.
 class PetProvisioningService
 {
     public function ensureForCharacter(Character $character): Pet
@@ -26,7 +31,7 @@ class PetProvisioningService
         try {
             return Pet::create([
                 'character_id' => $character->id,
-                'key' => 'starter',
+                'species_id' => PetSpecies::where('key', 'starter')->firstOrFail()->id,
                 'name' => 'Compañero',
                 'level' => 1,
                 'exp' => 0,

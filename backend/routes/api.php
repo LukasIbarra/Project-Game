@@ -74,6 +74,11 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::post('/pet/expedition/claim', [PetExpeditionController::class, 'claim']);
     Route::get('/pet/events', [PetController::class, 'events']);
 
+    // Fase 20: alimentación de mascotas -mismo principio de siempre, la
+    // mascota siempre se deriva del usuario autenticado.
+    Route::get('/pet/food', [PetController::class, 'food']);
+    Route::post('/pet/feed', [PetController::class, 'feed']);
+
     // F8: economía/crafting -mismo principio, la receta la elige el
     // cliente, todo lo demás (ingredientes/resultado) lo resuelve el
     // backend.

@@ -282,6 +282,9 @@ export interface Pet {
   id: number;
   name: string;
   species: string;
+  // Fase 20: nombre amigable de la especie (antes solo existía `species`,
+  // la key técnica) -ver PetPresenter::pet().
+  species_name: string;
   level: number;
   experience: number;
   health: number;
@@ -328,6 +331,31 @@ export async function claimPetExpedition(): Promise<{ expedition: PetExpedition;
 
 export async function getPetEvents(): Promise<PetExpedition[]> {
   return request("/api/v1/pet/events");
+}
+
+// Fase 20: alimentación -catálogo de comida + acción de alimentar. El
+// personaje/mascota siempre se derivan del usuario autenticado del lado
+// del backend, estas funciones nunca mandan character_id/pet_id.
+export interface PetFoodDto {
+  item_key: string;
+  item_name: string;
+  exp_value: number;
+}
+
+export async function getPetFood(): Promise<PetFoodDto[]> {
+  return request("/api/v1/pet/food");
+}
+
+export interface FeedPetResultDto {
+  pet: Pet;
+  leveled_up: boolean;
+}
+
+export async function feedPet(foodKey: string): Promise<FeedPetResultDto> {
+  return request("/api/v1/pet/feed", {
+    method: "POST",
+    body: JSON.stringify({ food_key: foodKey }),
+  });
 }
 
 // F8: economía/crafting/venta. Igual que arriba: el cliente solo pide
