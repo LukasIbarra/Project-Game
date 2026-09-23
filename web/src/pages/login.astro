@@ -1,57 +1,154 @@
 ---
-// Fase 10.5.1: reemplaza el formulario HTML plano de Fase 1. Misma
-// arquitectura de auth de siempre (Sanctum, token en localStorage,
-// POST /api/v1/auth/login) -esto es presentación/UX, no un cambio de
-// backend (salvo los mensajes de validación en español, ver
-// AuthController). Panel tipo "ventana de RPG" sobre el mismo fondo
-// ambiental que la landing, a baja opacidad -mismo truco que ya usa
-// AppShell con fondo_05.png-, para que se sienta como el mismo mundo,
-// no una página aparte.
+// Fase 10.5.1 — Login público de Chibikko.
+// Mantiene exactamente la misma arquitectura de autenticación.
+// Esta pantalla comparte identidad visual con la landing:
+// fondo_inicio.png + logo.png + sakura + panel RPG.
+
 import PublicLayout from "../layouts/PublicLayout.astro";
 import GamePanel from "../components/ui/GamePanel.astro";
 import GameInput from "../components/ui/GameInput.astro";
+
+const petals = Array.from({ length: 14 }, (_, i) => ({
+	id: i,
+	left: `${(i * 19 + 5) % 100}%`,
+	delay: `${-((i * 1.8) % 12)}s`,
+	duration: `${11 + (i % 6)}s`,
+	size: 7 + (i % 4) * 2,
+}));
 ---
 
-<PublicLayout title="Iniciar sesión — Adventure">
-	<main class="relative flex min-h-screen w-full items-center justify-center px-4 py-10">
+<PublicLayout title="Iniciar sesión — Chibikko">
+	<main class="auth-page relative min-h-screen w-full overflow-hidden">
+
+		<!-- Fondo compartido con la landing -->
 		<div
-			class="pointer-events-none fixed inset-0 bg-cover bg-center opacity-[0.14]"
-			style="background-image: url('/backgrounds/fondo_001.png'); image-rendering: pixelated;"
+			class="auth-background pointer-events-none fixed inset-0"
+			aria-hidden="true"
+		></div>
+
+		<!-- Vignette para mejorar legibilidad sin ocultar el fondo -->
+		<div
+			class="auth-vignette pointer-events-none fixed inset-0"
+			aria-hidden="true"
+		></div>
+
+		<!-- Sakura -->
+		<div
+			class="pointer-events-none fixed inset-0 z-[2] overflow-hidden"
 			aria-hidden="true"
 		>
+			{petals.map((petal) => (
+				<span
+					class="sakura-petal"
+					style={`
+						--left:${petal.left};
+						--delay:${petal.delay};
+						--duration:${petal.duration};
+						--size:${petal.size}px;
+					`}
+				>
+					<svg viewBox="0 0 16 16" aria-hidden="true">
+						<path
+							d="M8 15C6 11 2 10 2 6C2 3 5 1 8 5C11 1 14 3 14 6C14 10 10 11 8 15Z"
+							fill="currentColor"
+						/>
+					</svg>
+				</span>
+			))}
 		</div>
-		<div class="pointer-events-none fixed inset-0 bg-bg/70" aria-hidden="true"></div>
 
-		<div class="relative z-10 flex w-full max-w-sm flex-col gap-3">
-			<a href="/" class="self-start font-mono text-[0.65rem] uppercase tracking-wide text-muted transition-colors hover:text-cyan">
-				← Volver al mundo
-			</a>
+		<!-- Contenido -->
+		<div
+			class="relative z-10 flex min-h-screen w-full flex-col items-center justify-center px-4 py-8"
+		>
+			<div class="auth-container flex w-full max-w-sm flex-col items-center">
 
-			<GamePanel notched bodyClass="flex flex-col gap-4 p-6">
-				<div class="text-center">
-					<h1 class="m-0 font-display text-sm text-cyan">INICIAR SESIÓN</h1>
-					<p class="m-0 mt-2 text-xs text-muted">Tu aventura te espera donde la dejaste.</p>
+				<!-- Logo -->
+				<a
+					href="/"
+					class="logo-link mb-5 block"
+					aria-label="Volver al inicio"
+				>
+					<img
+						src="/backgrounds/logo.png"
+						alt="Chibikko"
+						class="chibikko-logo w-[270px] max-w-[75vw] select-none sm:w-[320px]"
+						draggable="false"
+					/>
+				</a>
+
+				<!-- Panel -->
+				<div class="auth-panel-wrapper w-full">
+					<GamePanel
+						notched
+						bodyClass="flex flex-col gap-5 p-6 sm:p-7"
+					>
+						<div class="text-center">
+							<h1 class="auth-title m-0 font-display text-sm">
+								INICIAR SESIÓN
+							</h1>
+
+							<p class="m-0 mt-2 text-xs leading-relaxed text-muted">
+								Tu aventura te espera donde la dejaste.
+							</p>
+						</div>
+
+						<div class="auth-divider"></div>
+
+						<p
+							id="error-message"
+							class="error-box hidden px-3 py-2 text-center text-xs"
+						></p>
+
+						<form
+							id="login-form"
+							class="flex flex-col gap-4"
+						>
+							<GameInput
+								label="Correo"
+								name="email"
+								type="email"
+								autocomplete="email"
+							/>
+
+							<GameInput
+								label="Contraseña"
+								name="password"
+								type="password"
+								autocomplete="current-password"
+							/>
+
+							<button
+								type="submit"
+								id="submit-button"
+								class="pixel-button pixel-button-primary mt-2"
+							>
+								ENTRAR
+							</button>
+						</form>
+
+						<div class="auth-divider"></div>
+
+						<p class="m-0 text-center text-xs text-muted">
+							¿Aún no tienes personaje?
+
+							<a
+								href="/register"
+								class="register-link ml-1"
+							>
+								Crear personaje
+							</a>
+						</p>
+					</GamePanel>
 				</div>
 
-				<p id="error-message" class="hidden border border-red px-3 py-2 text-center text-xs text-red"></p>
-
-				<form id="login-form" class="flex flex-col gap-3">
-					<GameInput label="Correo" name="email" type="email" autocomplete="email" />
-					<GameInput label="Contraseña" name="password" type="password" autocomplete="current-password" />
-
-					<button
-						type="submit"
-						id="submit-button"
-						class="mt-1 border-2 border-cyan bg-cyan px-4 py-2 font-display text-xs text-bg transition-transform hover:scale-[1.02] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
-					>
-						ENTRAR
-					</button>
-				</form>
-
-				<p class="m-0 text-center text-xs text-muted">
-					¿No tenés personaje? <a href="/register" class="text-pink hover:underline">Creá uno</a>
-				</p>
-			</GamePanel>
+				<a
+					href="/"
+					class="back-link mt-4"
+				>
+					← VOLVER AL INICIO
+				</a>
+			</div>
 		</div>
 	</main>
 
@@ -60,25 +157,417 @@ import GameInput from "../components/ui/GameInput.astro";
 
 		const form = document.getElementById("login-form") as HTMLFormElement;
 		const errorEl = document.getElementById("error-message")!;
-		const submitButton = document.getElementById("submit-button") as HTMLButtonElement;
+		const submitButton = document.getElementById(
+			"submit-button",
+		) as HTMLButtonElement;
 
 		form.addEventListener("submit", async (event) => {
 			event.preventDefault();
+
 			errorEl.classList.add("hidden");
 			submitButton.disabled = true;
+			submitButton.textContent = "ENTRANDO...";
 
 			const data = new FormData(form);
+
 			const email = String(data.get("email") ?? "");
 			const password = String(data.get("password") ?? "");
 
 			try {
 				await login(email, password);
+
 				window.location.href = "/home";
 			} catch (err) {
-				errorEl.textContent = errorMessage(err, "Ese correo o contraseña no coincide.");
+				errorEl.textContent = errorMessage(
+					err,
+					"Ese correo o contraseña no coincide.",
+				);
+
 				errorEl.classList.remove("hidden");
+
 				submitButton.disabled = false;
+				submitButton.textContent = "ENTRAR";
 			}
 		});
 	</script>
 </PublicLayout>
+
+<style>
+	/* =========================================================
+	   BASE
+	   ========================================================= */
+
+	.auth-page {
+		background: #050a18;
+	}
+
+	.auth-background {
+		background-image: url("/backgrounds/fondo_inicio.png");
+		background-size: cover;
+		background-position: center;
+		background-repeat: no-repeat;
+
+		image-rendering: pixelated;
+
+		transform: scale(1.01);
+
+		animation: background-enter 1s ease-out both;
+	}
+
+	/*
+	 * Más oscuro que la landing porque aquí tenemos inputs,
+	 * pero sin destruir los colores del fondo.
+	 */
+	.auth-vignette {
+		background:
+			radial-gradient(
+				ellipse at center,
+				rgba(3, 7, 20, 0.05) 0%,
+				rgba(3, 7, 20, 0.18) 45%,
+				rgba(3, 7, 20, 0.68) 100%
+			),
+			linear-gradient(
+				to bottom,
+				rgba(3, 7, 20, 0.18),
+				rgba(3, 7, 20, 0.08) 45%,
+				rgba(3, 7, 20, 0.48)
+			);
+	}
+
+
+	/* =========================================================
+	   CONTENEDOR
+	   ========================================================= */
+
+	.auth-container {
+		animation: auth-enter 550ms ease-out both;
+	}
+
+	.auth-panel-wrapper {
+		filter:
+			drop-shadow(0 12px 25px rgba(0, 0, 0, 0.45));
+	}
+
+
+	/* =========================================================
+	   LOGO
+	   ========================================================= */
+
+	.logo-link {
+		transition: transform 150ms ease;
+	}
+
+	.logo-link:hover {
+		transform: scale(1.025);
+	}
+
+	.chibikko-logo {
+		image-rendering: pixelated;
+
+		filter:
+			drop-shadow(0 5px 0 rgba(10, 4, 30, 0.75))
+			drop-shadow(0 0 18px rgba(255, 119, 190, 0.18));
+
+		animation: logo-float 4s ease-in-out infinite;
+	}
+
+
+	/* =========================================================
+	   PANEL
+	   ========================================================= */
+
+	.auth-title {
+		color: #ffc2df;
+
+		text-shadow:
+			0 2px 0 rgba(0, 0, 0, 0.7),
+			0 0 10px rgba(239, 115, 168, 0.25);
+	}
+
+	.auth-divider {
+		width: 100%;
+		height: 1px;
+
+		background:
+			linear-gradient(
+				to right,
+				transparent,
+				rgba(239, 115, 168, 0.45),
+				rgba(106, 195, 220, 0.35),
+				transparent
+			);
+	}
+
+
+	/* =========================================================
+	   ERROR
+	   ========================================================= */
+
+	.error-box {
+		color: #ff9ba8;
+
+		border: 1px solid rgba(255, 90, 110, 0.6);
+
+		background: rgba(75, 15, 30, 0.5);
+
+		box-shadow:
+			inset 0 0 12px rgba(255, 80, 100, 0.05);
+	}
+
+
+	/* =========================================================
+	   BOTÓN
+	   ========================================================= */
+
+	.pixel-button {
+		position: relative;
+
+		display: flex;
+		align-items: center;
+		justify-content: center;
+
+		width: 100%;
+		min-height: 46px;
+
+		padding: 0.75rem 1.5rem;
+
+		font-family: var(--font-display);
+		font-size: 0.72rem;
+		letter-spacing: 0.06em;
+
+		transition:
+			transform 120ms ease,
+			filter 120ms ease,
+			box-shadow 120ms ease;
+
+		image-rendering: pixelated;
+	}
+
+	.pixel-button-primary {
+		color: white;
+
+		background:
+			linear-gradient(
+				to bottom,
+				#ef73a8,
+				#c53b78
+			);
+
+		border: 2px solid #ffb5d5;
+
+		box-shadow:
+			0 0 0 2px #35194c,
+			0 5px 0 #35194c,
+			0 8px 18px rgba(0, 0, 0, 0.35);
+	}
+
+	.pixel-button-primary:hover:not(:disabled) {
+		transform: translateY(-2px);
+
+		filter: brightness(1.12);
+
+		box-shadow:
+			0 0 0 2px #35194c,
+			0 7px 0 #35194c,
+			0 10px 22px rgba(0, 0, 0, 0.4);
+	}
+
+	.pixel-button-primary:active:not(:disabled) {
+		transform: translateY(3px);
+
+		box-shadow:
+			0 0 0 2px #35194c,
+			0 2px 0 #35194c;
+	}
+
+	.pixel-button:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
+		filter: grayscale(0.3);
+	}
+
+
+	/* =========================================================
+	   LINKS
+	   ========================================================= */
+
+	.register-link {
+		color: #f28ab8;
+
+		transition:
+			color 150ms ease,
+			text-shadow 150ms ease;
+	}
+
+	.register-link:hover {
+		color: #ffc1dd;
+
+		text-shadow:
+			0 0 8px rgba(242, 138, 184, 0.4);
+	}
+
+	.back-link {
+		font-family: var(--font-mono);
+		font-size: 0.65rem;
+
+		letter-spacing: 0.1em;
+
+		color: rgba(255, 255, 255, 0.55);
+
+		text-shadow: 0 2px 3px black;
+
+		transition:
+			color 150ms ease,
+			transform 150ms ease;
+	}
+
+	.back-link:hover {
+		color: #ffc1dd;
+
+		transform: translateX(-2px);
+	}
+
+
+	/* =========================================================
+	   SAKURA
+	   ========================================================= */
+
+	.sakura-petal {
+		position: absolute;
+
+		top: -30px;
+		left: var(--left);
+
+		width: var(--size);
+		height: var(--size);
+
+		color: #f5a4c7;
+
+		opacity: 0;
+
+		filter:
+			drop-shadow(1px 1px 0 rgba(80, 25, 65, 0.4));
+
+		image-rendering: pixelated;
+
+		animation:
+			sakura-fall var(--duration)
+			linear var(--delay)
+			infinite;
+	}
+
+	.sakura-petal svg {
+		display: block;
+		width: 100%;
+		height: 100%;
+	}
+
+
+	/* =========================================================
+	   ANIMACIONES
+	   ========================================================= */
+
+	@keyframes sakura-fall {
+		0% {
+			transform:
+				translate3d(-100px, -10vh, 0)
+				rotate(0deg);
+
+			opacity: 0;
+		}
+
+		8% {
+			opacity: 0.8;
+		}
+
+		45% {
+			transform:
+				translate3d(70px, 45vh, 0)
+				rotate(170deg);
+		}
+
+		100% {
+			transform:
+				translate3d(180px, 110vh, 0)
+				rotate(380deg);
+
+			opacity: 0.15;
+		}
+	}
+
+	@keyframes logo-float {
+		0%,
+		100% {
+			transform: translateY(0);
+		}
+
+		50% {
+			transform: translateY(-4px);
+		}
+	}
+
+	@keyframes auth-enter {
+		from {
+			opacity: 0;
+
+			transform:
+				translateY(12px)
+				scale(0.98);
+		}
+
+		to {
+			opacity: 1;
+
+			transform:
+				translateY(0)
+				scale(1);
+		}
+	}
+
+	@keyframes background-enter {
+		from {
+			opacity: 0;
+
+			transform: scale(1.035);
+		}
+
+		to {
+			opacity: 1;
+
+			transform: scale(1.01);
+		}
+	}
+
+
+	/* =========================================================
+	   MOBILE
+	   ========================================================= */
+
+	@media (max-width: 640px) {
+		.sakura-petal:nth-child(even) {
+			display: none;
+		}
+
+		.auth-container {
+			max-width: 22rem;
+		}
+	}
+
+
+	/* =========================================================
+	   ACCESIBILIDAD
+	   ========================================================= */
+
+	@media (prefers-reduced-motion: reduce) {
+		.auth-container,
+		.chibikko-logo,
+		.auth-background,
+		.sakura-petal {
+			animation: none;
+		}
+
+		.sakura-petal {
+			display: none;
+		}
+	}
+</style>
