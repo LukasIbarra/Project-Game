@@ -523,7 +523,12 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		starterOptionsEl.innerHTML = "";
 		for (const s of starters) {
 			const card = document.createElement("div");
-			card.className = "flex flex-col items-center gap-2 border border-outline-strong p-3 text-center";
+			// h-full: la tarjeta ocupa toda la altura de su fila de grid
+			// (que ya son parejas entre sí -stretch por defecto de CSS
+			// grid-, esto solo lo hace explícito). mt-auto en el botón más
+			// abajo es lo que realmente lo ancla al fondo sin importar
+			// cuántas líneas ocupe la descripción de cada especie.
+			card.className = "flex h-full flex-col items-center gap-2 border border-outline-strong p-3 text-center";
 			card.appendChild(spriteCard(s.sprite, true));
 
 			const name = document.createElement("p");
@@ -542,7 +547,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			button.type = "button";
 			button.textContent = "Elegir (gratis)";
 			button.className =
-				"w-full border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+				"mt-auto w-full border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
 			button.addEventListener("click", async () => {
 				for (const btn of starterOptionsEl.querySelectorAll("button")) {
 					(btn as HTMLButtonElement).disabled = true;
@@ -575,7 +580,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		for (const p of mine.pets) {
 			const isActive = p.id === mine.active_pet_id;
 			const card = document.createElement("div");
-			card.className = `flex flex-col items-center gap-2 border p-3 text-center ${isActive ? "border-cyan" : "border-outline-strong"}`;
+			card.className = `flex h-full flex-col items-center gap-2 border p-3 text-center ${isActive ? "border-cyan" : "border-outline-strong"}`;
 			card.appendChild(spriteCard(p.sprite));
 
 			const name = document.createElement("p");
@@ -590,7 +595,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 
 			if (isActive) {
 				const badge = document.createElement("span");
-				badge.className = "font-mono text-[0.6rem] uppercase tracking-wide text-cyan";
+				badge.className = "mt-auto font-mono text-[0.6rem] uppercase tracking-wide text-cyan";
 				badge.textContent = "Activa";
 				card.appendChild(badge);
 			} else {
@@ -598,7 +603,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 				button.type = "button";
 				button.textContent = "Activar";
 				button.className =
-					"w-full border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+					"mt-auto w-full border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
 				button.addEventListener("click", async () => {
 					button.disabled = true;
 					try {
@@ -621,7 +626,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		const purchasable = species.filter((s) => !s.owned);
 		for (const s of purchasable) {
 			const card = document.createElement("div");
-			card.className = "flex flex-col items-center gap-2 border border-outline-strong p-3 text-center";
+			card.className = "flex h-full flex-col items-center gap-2 border border-outline-strong p-3 text-center";
 			card.appendChild(spriteCard(s.sprite, true));
 
 			const name = document.createElement("p");
@@ -638,7 +643,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			button.type = "button";
 			button.textContent = "Adoptar";
 			button.className =
-				"w-full border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+				"mt-auto w-full border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
 			button.addEventListener("click", async () => {
 				button.disabled = true;
 				try {
@@ -1182,6 +1187,23 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		}
 	}
 
+</style>
+
+<!-- F23 (ajuste visual, causa raíz del bug de silueta invisible): Astro
+     scopea por defecto cada <style> de un componente -agrega
+     data-astro-cid-* a los elementos del propio template y reescribe los
+     selectores para exigir ese atributo-. `.pet-sprite`/
+     `.pet-sprite-silhouette` se usan en divs creados por
+     `document.createElement()` dentro de spriteCard() (selector de
+     starter, lista de especies comprables) -esos divs NUNCA reciben
+     data-astro-cid-* porque no vienen del template, así que la versión
+     scopeada de estas reglas jamás los alcanzaba: sin width/height, el div
+     quedaba con alto 0 y el sprite era invisible aunque existiera en el
+     DOM-. #pet-portrait sí es del template y por eso siempre se vio bien,
+     ocultando el bug. is:global saca estas dos reglas del scoping -sin
+     colisión posible, `.pet-sprite`/`.pet-sprite-silhouette` no se usan en
+     ningún otro archivo del proyecto (verificado)-. -->
+<style is:global>
 	/* F23: retrato/tarjetas de mascota -spritesheet real recortado vía
 	   background-position (ver applySpriteFrame en el script). Pixelado
 	   siempre, sin blur/interpolación -estilo Chibikko-. */
