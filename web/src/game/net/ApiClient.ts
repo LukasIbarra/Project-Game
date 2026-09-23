@@ -340,14 +340,32 @@ export interface Pet {
   sprite: PetSpriteMetaDto | null;
 }
 
-// F23: GET /pet ahora devuelve 404 cuando el personaje todavía no tiene
-// mascota activa (ya no se auto-crea en el registro) -este helper expone
-// esa distinción sin que cada caller tenga que andar mirando err.status.
+// F23 (ajuste): PetController::show() devuelve 404 en DOS casos distintos,
+// con el mismo status pero mensajes distintos -"este usuario no tiene un
+// personaje" (error real, nunca debe tratarse como onboarding) vs "todavía
+// no tiene una mascota activa" (estado válido, es el disparador del flujo
+// de adopción). El status por sí solo no alcanza para distinguirlos; sin
+// tocar el contrato del backend, el único dato disponible acá es el
+// `message` exacto que ya devuelve el controller. Si algún día cambia ese
+// texto, este check deja de reconocerlo y el 404 vuelve a tratarse como
+// error real (degradación seguro-por-defecto, nunca al revés).
+const NO_ACTIVE_PET_MESSAGE = "Este personaje todavía no tiene una mascota activa.";
+
+function is404WithMessage(err: unknown, message: string): boolean {
+  if (!(err instanceof ApiError) || err.status !== 404) {
+    return false;
+  }
+  if (!err.body || typeof err.body !== "object") {
+    return false;
+  }
+  return (err.body as { message?: unknown }).message === message;
+}
+
 export async function getPet(): Promise<Pet | null> {
   try {
     return await request<Pet>("/api/v1/pet");
   } catch (err) {
-    if (err instanceof ApiError && err.status === 404) {
+    if (is404WithMessage(err, NO_ACTIVE_PET_MESSAGE)) {
       return null;
     }
     throw err;

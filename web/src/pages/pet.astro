@@ -213,6 +213,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		type ItemDto,
 		type Pet,
 		type PetExpeditionCheckpoint,
+		type PetSpriteAnimationsDto,
 		type PetSpriteMetaDto,
 	} from "../game/net/ApiClient";
 	import { toast } from "../game/state/toast";
@@ -483,10 +484,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		collectionViewEl.classList.remove("flex");
 		petToolbarEl.classList.add("hidden");
 		petToolbarEl.classList.remove("flex");
-		if (portraitIdleTimer) {
-			clearInterval(portraitIdleTimer);
-			portraitIdleTimer = null;
-		}
+		clearPortraitTimers();
 		renderStarterOptions().catch((err) => {
 			showError(messageFrom(err, "No se pudieron cargar las especies disponibles."));
 		});
@@ -505,9 +503,13 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		}
 	}
 
-	function spriteCard(sprite: PetSpriteMetaDto | null): HTMLDivElement {
+	// F23 (ajuste visual): `silhouette=true` oculta el sprite -contexto de
+	// adopción, la mascota todavía no es del jugador-. Siempre el primer
+	// frame de `animations.idle` (el neutral), estático -no se anima acá,
+	// eso queda para el retrato principal ya adoptado (playPortraitIdleLoop)-.
+	function spriteCard(sprite: PetSpriteMetaDto | null, silhouette = false): HTMLDivElement {
 		const box = document.createElement("div");
-		box.className = "pet-sprite mx-auto";
+		box.className = silhouette ? "pet-sprite pet-sprite-silhouette mx-auto" : "pet-sprite mx-auto";
 		applySpriteFrame(box, sprite, sprite?.animations?.idle?.[0] ?? 0);
 		return box;
 	}
@@ -522,7 +524,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		for (const s of starters) {
 			const card = document.createElement("div");
 			card.className = "flex flex-col items-center gap-2 border border-outline-strong p-3 text-center";
-			card.appendChild(spriteCard(s.sprite));
+			card.appendChild(spriteCard(s.sprite, true));
 
 			const name = document.createElement("p");
 			name.className = "m-0 text-sm text-text";
@@ -620,7 +622,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		for (const s of purchasable) {
 			const card = document.createElement("div");
 			card.className = "flex flex-col items-center gap-2 border border-outline-strong p-3 text-center";
-			card.appendChild(spriteCard(s.sprite));
+			card.appendChild(spriteCard(s.sprite, true));
 
 			const name = document.createElement("p");
 			name.className = "m-0 text-sm text-text";
@@ -1188,5 +1190,15 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		height: 96px;
 		background-repeat: no-repeat;
 		image-rendering: pixelated;
+	}
+
+	/* F23 (ajuste visual): silueta para especies que todavía no son del
+	   jugador (starters sin adoptar / especies comprables no poseídas)
+	   -brightness(0) lleva cada píxel visible a negro sólido sin tocar el
+	   canal alpha, así el recorte/transparencia del spritesheet se
+	   conserva intacto, nunca aparece un rectángulo negro-. Una mascota ya
+	   adoptada/activa nunca usa esta clase. */
+	.pet-sprite-silhouette {
+		filter: brightness(0);
 	}
 </style>

@@ -32,8 +32,32 @@ class PetTest extends TestCase
         $response = $this->withToken($token)->getJson('/api/v1/pet');
 
         $response->assertStatus(404);
+        // Ajuste post-F23: el frontend (ApiClient.ts::getPet()) distingue
+        // este 404 de "no tiene personaje" por el `message` exacto -sin
+        // esta aserción, un cambio de texto en el controller rompería
+        // silenciosamente esa distinción del lado del cliente sin que
+        // ningún test lo detecte-.
+        $response->assertJsonPath('message', 'Este personaje todavía no tiene una mascota activa.');
         $this->assertNull($character->fresh()->activePet);
         $this->assertSame(0, $character->fresh()->pets()->count());
+    }
+
+    // Ajuste post-F23: "sin personaje" es un 404 DISTINTO de "sin mascota
+    // activa" -mismo status, mensaje distinto-. El frontend nunca debe
+    // confundirlos (uno es un estado válido de onboarding, el otro un
+    // error real). En la práctica el registro siempre crea un Character
+    // (AuthController::register()), así que esto es defensivo -se
+    // reproduce acá creando un User sin Character, como haría un dato
+    // corrupto o una cuenta a medio crear-.
+    public function test_get_pet_sin_personaje_devuelve_404_con_mensaje_distinto(): void
+    {
+        $user = User::factory()->create();
+        $token = $user->createToken('test')->plainTextToken;
+
+        $response = $this->withToken($token)->getJson('/api/v1/pet');
+
+        $response->assertStatus(404);
+        $response->assertJsonPath('message', 'Este usuario no tiene un personaje.');
     }
 
     public function test_usuario_solo_puede_consultar_su_propia_mascota(): void

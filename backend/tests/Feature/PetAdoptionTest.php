@@ -340,7 +340,21 @@ class PetAdoptionTest extends TestCase
             'retired_at' => now(),
         ]);
 
-        $this->withToken($token)->getJson('/api/v1/pet')->assertStatus(404);
+        $petsResponse = $this->withToken($token)->getJson('/api/v1/pet');
+        $petsResponse->assertStatus(404);
+        // Mismo mensaje exacto que un usuario nuevo -el frontend trata
+        // "starter legacy retirado" y "usuario nuevo sin ninguna Pet" como
+        // el mismo estado (sin mascota activa), nunca como error real-.
+        $petsResponse->assertJsonPath('message', 'Este personaje todavía no tiene una mascota activa.');
+
+        // GET /pet/species y GET /pet/mine deben seguir funcionando con
+        // normalidad en este estado -son los dos endpoints que el
+        // frontend carga para armar la pantalla de selección inicial-.
+        $this->withToken($token)->getJson('/api/v1/pet/species')->assertOk();
+        $mineResponse = $this->withToken($token)->getJson('/api/v1/pet/mine');
+        $mineResponse->assertOk();
+        $mineResponse->assertJsonPath('active_pet_id', null);
+        $this->assertCount(0, $mineResponse->json('pets'), 'La colección visible excluye la Pet legacy retirada.');
 
         $response = $this->withToken($token)->postJson('/api/v1/pet/adopt', ['species_key' => 'sapphoro']);
         $response->assertStatus(201);
