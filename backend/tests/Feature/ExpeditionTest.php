@@ -28,10 +28,17 @@ class ExpeditionTest extends TestCase
     // awaiting_decision al azar y bloquear la expedición antes de
     // completar, haciendo estos tests flaky). El comportamiento con
     // eventos reales vive en ExpeditionEventTest.php.
+    // Ajuste post-F22: min_event_checkpoints en 0 también -la garantía
+    // mínima es independiente del % de arriba (ver
+    // ExpeditionService::planCheckpoints()) y forzaría kind=event igual
+    // aunque el % esté en 0, rompiendo el flujo 100% narrativo que este
+    // archivo necesita. La garantía en sí se prueba en
+    // ExpeditionPlanningTest.php.
     protected function setUp(): void
     {
         parent::setUp();
         Config::set('expeditions.checkpoint_event_chance_pct', 0);
+        Config::set('expeditions.min_event_checkpoints', 0);
     }
 
     protected function tearDown(): void

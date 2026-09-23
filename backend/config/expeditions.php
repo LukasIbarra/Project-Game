@@ -17,4 +17,18 @@ return [
     // expedición tiene al menos un evento mecánico (chest/enemy/help)
     // disponible; si no, siempre cae a narrative (degradación segura).
     'checkpoint_event_chance_pct' => 30,
+
+    // Ajuste post-F22: garantía mínima de checkpoints kind=event por
+    // expedición, INDEPENDIENTE de checkpoint_event_chance_pct de arriba
+    // -ver ExpeditionService::planCheckpoints(). Con solo el % de arriba,
+    // una expedición corta (piso de 3 checkpoints, 2 elegibles) tenía ~49%
+    // de chance de completarse sin tocar el sistema de eventos ni una vez
+    // (matemáticamente válido, mala sensación de gameplay). Se aplica
+    // DESPUÉS de rifar el % de arriba -si ya se cumplió por RNG, no hace
+    // nada-, solo sobre checkpoints con sequence>0 (el primero sigue
+    // siendo siempre narrative) y solo si hay al menos un
+    // ExpeditionEventDefinition mecánico disponible (misma degradación
+    // segura). Nunca decide el EventDefinition concreto -sigue siendo
+    // resolveDueCheckpoints() quien lo elige cuando el checkpoint vence-.
+    'min_event_checkpoints' => 1,
 ];

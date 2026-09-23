@@ -233,7 +233,6 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	// frame, se escala acá vía background-size, nunca se re-exporta a otro
 	// tamaño (los PNG originales quedan intactos).
 	const SPRITE_DISPLAY_SIZE = 96;
-	const IDLE_FRAME_INTERVAL_MS = 900;
 
 	function applySpriteFrame(el: HTMLElement, sprite: PetSpriteMetaDto | null, frameIndex: number): void {
 		if (!sprite) {
@@ -252,30 +251,107 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		el.style.backgroundPosition = `-${col * sprite.frame_width * scale}px -${row * sprite.frame_height * scale}px`;
 	}
 
-	// F23: animación idle mínima -alterna entre los idle_frames del sheet
-	// (típicamente [0,1], un parpadeo/respiración) cada IDLE_FRAME_INTERVAL_MS.
-	// Solo se usa en el retrato principal (portrait); las tarjetas de
-	// selección/colección muestran el primer idle_frame estático, no
-	// necesitan animar todas a la vez.
-	let portraitIdleTimer: ReturnType<typeof setInterval> | null = null;
+	// F23 (ajuste post-F23): animación del retrato principal, data-driven
+	// contra `sprite.animations` -nunca condiciona por species key-. Tres
+	// piezas, deliberadamente simples (sin motor de animación genérico):
+	//   1. `idle` en loop continuo mientras no pasa nada más.
+	//   2. `fidget` interrumpe el loop UNA vez cada tanto (delay aleatorio
+	//      entre FIDGET_MIN/MAX_DELAY_MS) y vuelve a `idle` sola -el
+	//      "movimiento ocasional" pedido, sin busy-loop ni RNG por frame-.
+	//   3. `playPortraitReaction(key)` reproduce `happy`/`excited`/
+	//      `interaction` una sola vez (disparado por alimentar/adoptar/
+	//      cambiar activa) y al terminar vuelve a `idle` sola.
+	// Un solo timer encadenado (setTimeout que se reprograma a sí mismo) en
+	// vez de setInterval -necesario porque cada animación puede tener un
+	// número distinto de frames y una de ellas debe terminar y ceder el
+	// control, cosa que setInterval no puede expresar limpiamente-.
+	type PortraitAnimationKey = keyof PetSpriteAnimationsDto;
 
-	function startPortraitIdleAnimation(sprite: PetSpriteMetaDto | null): void {
-		if (portraitIdleTimer) {
-			clearInterval(portraitIdleTimer);
-			portraitIdleTimer = null;
+	const IDLE_FRAME_INTERVAL_MS = 900;
+	const REACTION_FRAME_INTERVAL_MS = 350;
+	const FIDGET_MIN_DELAY_MS = 6000;
+	const FIDGET_MAX_DELAY_MS = 14000;
+
+	let portraitSprite: PetSpriteMetaDto | null = null;
+	let portraitTimer: ReturnType<typeof setTimeout> | null = null;
+	let portraitFidgetTimer: ReturnType<typeof setTimeout> | null = null;
+
+	function clearPortraitTimers(): void {
+		if (portraitTimer) {
+			clearTimeout(portraitTimer);
+			portraitTimer = null;
 		}
-		if (!sprite || sprite.idle_frames.length === 0) {
-			applySpriteFrame(petPortraitEl, sprite, 0);
+		if (portraitFidgetTimer) {
+			clearTimeout(portraitFidgetTimer);
+			portraitFidgetTimer = null;
+		}
+	}
+
+	function scheduleFidget(): void {
+		if (!portraitSprite || portraitSprite.animations.fidget.length === 0) {
 			return;
 		}
-		let i = 0;
-		applySpriteFrame(petPortraitEl, sprite, sprite.idle_frames[0]);
-		if (sprite.idle_frames.length > 1) {
-			portraitIdleTimer = setInterval(() => {
-				i = (i + 1) % sprite.idle_frames.length;
-				applySpriteFrame(petPortraitEl, sprite, sprite.idle_frames[i]);
-			}, IDLE_FRAME_INTERVAL_MS);
+		const delay = FIDGET_MIN_DELAY_MS + Math.random() * (FIDGET_MAX_DELAY_MS - FIDGET_MIN_DELAY_MS);
+		portraitFidgetTimer = setTimeout(() => {
+			playPortraitOnce("fidget", playPortraitIdleLoop);
+		}, delay);
+	}
+
+	function playPortraitIdleLoop(): void {
+		if (!portraitSprite) {
+			applySpriteFrame(petPortraitEl, null, 0);
+			return;
 		}
+		const frames = portraitSprite.animations.idle.length > 0 ? portraitSprite.animations.idle : [0];
+		let i = 0;
+		const step = () => {
+			applySpriteFrame(petPortraitEl, portraitSprite, frames[i]);
+			i = (i + 1) % frames.length;
+			portraitTimer = setTimeout(step, IDLE_FRAME_INTERVAL_MS);
+		};
+		step();
+		scheduleFidget();
+	}
+
+	// Reproduce `animations[key]` de principio a fin (un frame por vez) y
+	// ejecuta `onDone` al terminar -nunca vuelve a `idle` por su cuenta,
+	// eso lo decide quien llama (fidget vuelve solo, una reacción también,
+	// pero quedan como llamadas explícitas, no un comportamiento oculto).
+	function playPortraitOnce(key: PortraitAnimationKey, onDone: () => void): void {
+		if (!portraitSprite) {
+			onDone();
+			return;
+		}
+		const frames = portraitSprite.animations[key];
+		if (!frames || frames.length === 0) {
+			onDone();
+			return;
+		}
+		clearPortraitTimers();
+		let i = 0;
+		const step = () => {
+			applySpriteFrame(petPortraitEl, portraitSprite, frames[i]);
+			i++;
+			portraitTimer = setTimeout(i < frames.length ? step : onDone, REACTION_FRAME_INTERVAL_MS);
+		};
+		step();
+	}
+
+	function startPortraitIdleAnimation(sprite: PetSpriteMetaDto | null): void {
+		clearPortraitTimers();
+		portraitSprite = sprite;
+		playPortraitIdleLoop();
+	}
+
+	// F23 (ajuste post-F23): reacciones puntuales conectadas a acciones que
+	// YA EXISTEN en /pet -alimentar, adoptar/comprar, cambiar mascota
+	// activa-. Si la especie no tiene frames para esa animación (`key` con
+	// array vacío), playPortraitOnce() cae directo a onDone sin romper nada.
+	function playPortraitReaction(key: "happy" | "excited" | "interaction"): void {
+		if (!portraitSprite) {
+			return;
+		}
+		playPortraitOnce(key, playPortraitIdleLoop);
 	}
 
 	const errorEl = document.getElementById("pet-error")!;
@@ -320,6 +396,13 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	// F21: id de la expedición actual -claimExpedition() ahora necesita el
 	// id explícito (antes reclamaba "la actual" sin parámetro).
 	let currentExpeditionId: number | null = null;
+	// F23 (ajuste post-F23): el retrato animado vive en active-pet-view, que
+	// queda oculto mientras la colección está abierta -no tiene sentido
+	// reproducir la reacción "interaction" mientras nadie la ve-. Se marca
+	// acá cuando setActivePet() tiene éxito y se dispara recién al volver
+	// (closeCollectionButton), después de que refresh() ya reconstruyó el
+	// retrato con la especie correcta.
+	let activePetSwitchedInCollection = false;
 	let countdownTimer: ReturnType<typeof setInterval> | null = null;
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -425,7 +508,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	function spriteCard(sprite: PetSpriteMetaDto | null): HTMLDivElement {
 		const box = document.createElement("div");
 		box.className = "pet-sprite mx-auto";
-		applySpriteFrame(box, sprite, sprite?.idle_frames?.[0] ?? 0);
+		applySpriteFrame(box, sprite, sprite?.animations?.idle?.[0] ?? 0);
 		return box;
 	}
 
@@ -466,6 +549,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 					await adoptPet(s.key);
 					toast.success(`¡${s.name} ahora es tu mascota!`);
 					await refresh();
+					playPortraitReaction("excited");
 				} catch (err) {
 					toast.error(messageFrom(err, "No se pudo adoptar la mascota."));
 					for (const btn of starterOptionsEl.querySelectorAll("button")) {
@@ -518,6 +602,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 					try {
 						await setActivePet(p.id);
 						toast.success(`${p.name} ahora es tu mascota activa.`);
+						activePetSwitchedInCollection = true;
 						await renderCollection();
 					} catch (err) {
 						toast.error(messageFrom(err, "No se pudo activar esa mascota."));
@@ -589,6 +674,10 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		// Puede haberse cambiado la mascota activa dentro de la colección
 		// -refrescar el estado normal para reflejarlo (retrato/status/etc.)-.
 		await refresh();
+		if (activePetSwitchedInCollection) {
+			activePetSwitchedInCollection = false;
+			playPortraitReaction("interaction");
+		}
 	});
 
 	function formatCountdown(msRemaining: number): string {
@@ -1013,6 +1102,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			const { leveled_up } = await feedPet(foodKey);
 			toast.success(leveled_up ? "¡Tu mascota subió de nivel!" : "Tu mascota disfrutó la comida.");
 			await refresh();
+			playPortraitReaction("happy");
 		} catch (err) {
 			toast.error(messageFrom(err, "No se pudo alimentar a la mascota."));
 		} finally {

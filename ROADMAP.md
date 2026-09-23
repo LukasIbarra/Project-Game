@@ -434,6 +434,40 @@ espera), branching narrativo complejo, balance real de probabilidades (F23),
 imágenes/ilustraciones por expedición ni rediseño artístico definitivo del
 selector.
 
+**Ajuste posterior (detectado en producción real, corregido sin abrir fase
+nueva):** una prueba real de 30 min en Bosque Encantado (`forest`) completó
+la expedición sin tocar el sistema de eventos ni una vez. Auditoría de
+`ExpeditionService::planCheckpoints()`: el piso real es `MIN_CHECKPOINTS=3`
+(no 2 como se percibió), de los cuales 2 son elegibles para `kind=event`
+-el primero siempre es `narrative`-; con `checkpoint_event_chance_pct=30`,
+la probabilidad de que NINGUNO de esos 2 fuera event era ~49% (0.7²) —
+matemáticamente válido, mala sensación de gameplay. Se agregó
+`config('expeditions.min_event_checkpoints')` (default `1`), independiente
+de `checkpoint_event_chance_pct`: después de rifar el % como siempre, si el
+conteo de `event` entre los checkpoints elegibles queda por debajo del
+mínimo, se sube de `narrative` a `event` la cantidad que falte -determinista,
+de atrás para adelante, sin volver a tirar dados, sin tocar `sequence=0`,
+solo si hay al menos un `ExpeditionEventDefinition` mecánico disponible
+(misma degradación segura que el % de arriba). No cambia `MIN_CHECKPOINTS`
+ni `MAX_CHECKPOINTS`; en expediciones largas (≥2h) el forzado casi nunca se
+activa (con ≥9 checkpoints elegibles al 30%, la chance de necesitarlo es
+<1%), así que no les agrega ruido. Nunca decide el `EventDefinition`
+concreto -eso lo sigue haciendo `resolveDueCheckpoints()` cuando el
+checkpoint vence, intacto-. Nuevo archivo `ExpeditionPlanningTest.php` (7
+tests: garantía en expedición corta, garantía con RNG en 0, el % sigue
+generando events adicionales por encima del mínimo, sin pre-rollear nada,
+mezcla razonable en expediciones largas, degradación segura sin contenido
+mecánico, `min_event_checkpoints=0` deshabilita la garantía). Se ajustaron
+3 tests preexistentes que forzaban `checkpoint_event_chance_pct=0` para
+mantenerse deterministas (`ExpeditionTest.php`, `ExpeditionCheckpointTest.php`,
+un caso puntual de `ExpeditionEventTest.php`) sumando también
+`min_event_checkpoints=0`, y 2 tests de F23 que iniciaban una expedición
+`forest` real sin neutralizar el % (`ActivityTest.php`,
+`PetAdoptionTest.php`) por el mismo motivo -no probaban el sistema de
+eventos, se volvieron flaky/rotos al pasar la garantía de "puede pasar" a
+"casi seguro pasa"-. Verificado además contra un backend real corriendo:
+5 inicios reales de `forest` confirmando al menos un checkpoint `event`.
+
 ---
 
 ### FASE 22 — Adopción, Colección y Mascota Activa ✅ COMPLETADA
@@ -546,10 +580,7 @@ no por interacción visual-.
 provisorios, pendientes de balance real (Fase 36). Rareza de las 5
 especies nuevas (`uncommon`) es cosmética, sin efecto mecánico -reservado
 para un futuro sistema de gacha/huevos, explícitamente fuera de alcance de
-esta fase-. Expresiones del spritesheet (`happy`/`fed`/`expedition`/
-`hurt`/`interact`) están documentadas en `sprite_meta_json.expression_frames`
-pero sin consumidor -implementación real queda para cuando se aborde el
-pulido de Demo/UX de Mascota-.
+esta fase-.
 **Dependencias:** Fase 20 (especies/`PetModifierResolver`), Fase 21 (motor
 de expediciones -la Pet activa sigue siendo la que inicia/resuelve
 expediciones-).
@@ -557,6 +588,35 @@ expediciones-).
 especie, breeding, evolución, rareza individual aleatoria, skins,
 marketplace/trading entre jugadores, imágenes de destino definitivas,
 balance final de precios, rediseño artístico completo de `/pet`.
+
+**Ajuste posterior (sprites transparentes + 8 frames aprovechados, sin
+abrir fase nueva):** el usuario reemplazó manualmente los 5 PNG por
+versiones con fondo transparente real (mismas rutas/nombres, misma grilla
+1774×887 / 4×2 / 443×443 -vuelta a medir con `sharp`, no asumida-; alpha
+channel `min:0/max:255` confirmado, no solo el flag `hasAlpha`). Se
+inspeccionaron visualmente los 8 frames de cada una de las 5 especies
+(recortes reales, no interpretados por índice) — no son un ciclo continuo
+0→7: frames 0-2 comparten semántica razonable entre especies (neutral /
+ojos cerrados-contento / excitado), 3-7 divergen genuinamente por especie
+(Kitsu: orejas/lengua/cola; Lumio: saludo con pata + chispas; Qappha:
+chorro de agua en el estanque; Rakhun: la hoja del sombrero vuela y
+aterriza; Sapphoro: mejillas infladas → festejo). `pet_species.sprite_meta_json`
+reemplaza `idle_frames`/`expression_frames` (F23) por `frames` (los 8
+documentados uno por uno, `{index,label}`) y `animations` -mismas 5 claves
+en las 5 especies (`idle`/`fidget`/`happy`/`excited`/`interaction`), con
+los índices reales de cada spritesheet detrás de cada clave-. Frontend
+(`pet.astro`): el retrato principal reproduce `idle` en loop, interrumpe
+con `fidget` cada 6-14s (delay aleatorio) y vuelve solo, y reproduce
+`happy`/`excited`/`interaction` una vez ante alimentar/adoptar-comprar/
+cambiar mascota activa respectivamente -disparado desde las 3 acciones que
+ya existían, ninguna mecánica nueva-. Sigue sin usar Phaser ni un motor de
+animación genérico (un solo timer encadenado con `setTimeout`), sigue
+`image-rendering: pixelated`, la transparencia nueva se ve tal cual contra
+el fondo del panel (nunca se simuló el negro anterior con CSS). De paso se
+corrigió una inconsistencia real encontrada en el seeder: las descripciones
+de `lumio` y `rakhun` estaban cruzadas respecto al contenido real de los
+sprites (`lumio` describía un mapache, `rakhun` un farol viviente —al
+revés de lo que muestra cada PNG).
 
 ---
 

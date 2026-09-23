@@ -31,10 +31,13 @@ class ExpeditionCheckpointTest extends TestCase
     // fuerza 0% de checkpoints kind=event para que sea determinista. El
     // comportamiento con eventos reales (incluido catch-up deteniéndose en
     // awaiting_decision) vive en ExpeditionEventTest.php.
+    // Ajuste post-F22: min_event_checkpoints en 0 también -ver el mismo
+    // comentario en ExpeditionTest.php::setUp().
     protected function setUp(): void
     {
         parent::setUp();
         Config::set('expeditions.checkpoint_event_chance_pct', 0);
+        Config::set('expeditions.min_event_checkpoints', 0);
     }
 
     protected function tearDown(): void

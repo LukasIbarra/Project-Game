@@ -16,12 +16,19 @@ use Illuminate\Database\Seeder;
 // docs/PETS_EXPEDITIONS_SYSTEM.md §5.1/§10-.
 //
 // sprite_meta_json: grilla REAL medida con `sharp` sobre los 5 PNG
-// (1774×887, sin alfa, 4 columnas × 2 filas, celdas de 443×443 sin
-// padding, confirmado extrayendo recortes y verificándolos visualmente
-// -no asumido-). idle_frames=[0,1] es el par "ojos abiertos ↔ cerrados"
-// -parpadeo-, verificado como seguro y consistente en las 5 especies.
-// expression_frames queda documentado/preparado, sin consumidor todavía
-// (F23 no implementa expresiones adicionales, solo idle).
+// (ajuste post-F23: reemplazo manual de los 5 PNG por versiones con fondo
+// transparente real -alpha channel min:0/max:255 verificado, no solo el
+// flag hasAlpha-, misma grilla 1774×887 / 4 columnas × 2 filas / celdas de
+// 443×443 sin padding, vuelta a medir en vez de asumida).
+//
+// `frames`: los 8 frames documentados uno por uno (index + label corto)
+// -inspección visual real de cada PNG, no inventado por índice-. `animations`
+// agrupa esos frames en 5 estados con el MISMO vocabulario en las 5
+// especies (idle/fidget/happy/excited/interaction), aunque los índices que
+// cada uno usa varían según lo que realmente muestra cada spritesheet -no
+// las 5 especies tienen el mismo "significado" en los frames 3-7, ver
+// PETS_EXPEDITIONS_SYSTEM.md §0-. El renderer de /pet consume `animations`
+// de forma genérica, nunca condiciona por species key.
 //
 // adoption_price=150: auditado contra la economía real (combate: 15
 // monedas por victoria / 3 por derrota; ítem más caro de la tienda hoy:
@@ -47,20 +54,8 @@ class PetSpeciesAdoptionSeeder extends Seeder
                         'frame_height' => 443,
                         'columns' => 4,
                         'rows' => 2,
-                        'idle_frames' => [0, 1],
-                        // Preparado para F24+ -índices reales del
-                        // spritesheet (8 frames, fila 1: 0-3, fila 2: 4-7),
-                        // sin consumidor todavía. No es una promesa exacta
-                        // de qué expresa cada frame en cada especie (varía
-                        // levemente entre las 5), solo un punto de partida
-                        // razonable común a las 5 grillas.
-                        'expression_frames' => [
-                            'happy' => [2, 3],
-                            'fed' => [1],
-                            'expedition' => [4, 5],
-                            'hurt' => [6],
-                            'interact' => [7],
-                        ],
+                        'frames' => $entry['frames'],
+                        'animations' => $entry['animations'],
                     ],
                     'modifiers_json' => $entry['modifiers'],
                     'level_modifiers_json' => [],
@@ -79,18 +74,52 @@ class PetSpeciesAdoptionSeeder extends Seeder
                 'key' => 'lumio',
                 'file' => 'Lumio',
                 'name' => 'Lumio',
-                'description' => 'Un mapache curioso que siempre lleva una hoja fresca en la cabeza. Conoce cada rincón del bosque.',
+                'description' => 'Un pequeño farol viviente que desprende un brillo cálido, acompañado por un espíritu flotante. Nadie sabe bien de dónde salió.',
                 'modifiers' => [
                     ['type' => 'material_quantity_bonus_pct', 'scope' => 'destination', 'target' => 'forest', 'value' => 10],
+                ],
+                'frames' => [
+                    ['index' => 0, 'label' => 'neutral'],
+                    ['index' => 1, 'label' => 'eyes_closed_content'],
+                    ['index' => 2, 'label' => 'excited_fangs_grin'],
+                    ['index' => 3, 'label' => 'neutral_tail_visible'],
+                    ['index' => 4, 'label' => 'wave_start_sparkle'],
+                    ['index' => 5, 'label' => 'wave_mid_sparkle'],
+                    ['index' => 6, 'label' => 'wave_paw_raised'],
+                    ['index' => 7, 'label' => 'wave_settle_sparkle'],
+                ],
+                'animations' => [
+                    'idle' => [0, 1],
+                    'fidget' => [3],
+                    'happy' => [2, 1],
+                    'excited' => [2],
+                    'interaction' => [4, 5, 6, 7],
                 ],
             ],
             [
                 'key' => 'rakhun',
                 'file' => 'Rakhun',
                 'name' => 'Rakhun',
-                'description' => 'Un pequeño farol viviente que desprende un brillo cálido. Nadie sabe bien de dónde salió.',
+                'description' => 'Un mapache curioso que siempre lleva una hoja fresca en la cabeza. Conoce cada rincón del bosque.',
                 'modifiers' => [
                     ['type' => 'rare_loot_chance_pct', 'scope' => 'global', 'target' => null, 'value' => 6],
+                ],
+                'frames' => [
+                    ['index' => 0, 'label' => 'neutral'],
+                    ['index' => 1, 'label' => 'eyes_closed_content'],
+                    ['index' => 2, 'label' => 'excited_wide_eyes'],
+                    ['index' => 3, 'label' => 'alert_leaf_tilt'],
+                    ['index' => 4, 'label' => 'leaf_wobble_excited'],
+                    ['index' => 5, 'label' => 'leaf_blown_off'],
+                    ['index' => 6, 'label' => 'leaf_floating_laugh'],
+                    ['index' => 7, 'label' => 'leaf_landing_happy'],
+                ],
+                'animations' => [
+                    'idle' => [0, 1],
+                    'fidget' => [3],
+                    'happy' => [6],
+                    'excited' => [2],
+                    'interaction' => [4, 5, 6, 7],
                 ],
             ],
             [
@@ -101,6 +130,23 @@ class PetSpeciesAdoptionSeeder extends Seeder
                 'modifiers' => [
                     ['type' => 'loot_bonus_pct', 'scope' => 'global', 'target' => null, 'value' => 5],
                 ],
+                'frames' => [
+                    ['index' => 0, 'label' => 'neutral_calm_pool'],
+                    ['index' => 1, 'label' => 'eyes_closed_content'],
+                    ['index' => 2, 'label' => 'excited_sparkle_cloud'],
+                    ['index' => 3, 'label' => 'neutral_blush'],
+                    ['index' => 4, 'label' => 'pool_calm'],
+                    ['index' => 5, 'label' => 'pool_bubble_start'],
+                    ['index' => 6, 'label' => 'pool_spout_peak'],
+                    ['index' => 7, 'label' => 'pool_settle_ripple'],
+                ],
+                'animations' => [
+                    'idle' => [0, 1],
+                    'fidget' => [3],
+                    'happy' => [2],
+                    'excited' => [4, 5, 6, 7],
+                    'interaction' => [1, 2],
+                ],
             ],
             [
                 'key' => 'kitsu',
@@ -110,6 +156,23 @@ class PetSpeciesAdoptionSeeder extends Seeder
                 'modifiers' => [
                     ['type' => 'rare_loot_chance_pct', 'scope' => 'destination', 'target' => 'blood_castle', 'value' => 8],
                 ],
+                'frames' => [
+                    ['index' => 0, 'label' => 'neutral'],
+                    ['index' => 1, 'label' => 'eyes_closed_content'],
+                    ['index' => 2, 'label' => 'excited_wide_eyes'],
+                    ['index' => 3, 'label' => 'wink_playful'],
+                    ['index' => 4, 'label' => 'ears_perk_alert'],
+                    ['index' => 5, 'label' => 'playful_tongue_out'],
+                    ['index' => 6, 'label' => 'tail_wag'],
+                    ['index' => 7, 'label' => 'neutral_alt'],
+                ],
+                'animations' => [
+                    'idle' => [0, 1],
+                    'fidget' => [7],
+                    'happy' => [5],
+                    'excited' => [2, 3],
+                    'interaction' => [6],
+                ],
             ],
             [
                 'key' => 'sapphoro',
@@ -118,6 +181,23 @@ class PetSpeciesAdoptionSeeder extends Seeder
                 'description' => 'Pequeño y con cuernos de fuego, pero de piel sorprendentemente resistente.',
                 'modifiers' => [
                     ['type' => 'damage_reduction_pct', 'scope' => 'event_type', 'target' => 'enemy', 'value' => 8],
+                ],
+                'frames' => [
+                    ['index' => 0, 'label' => 'neutral'],
+                    ['index' => 1, 'label' => 'eyes_closed_content'],
+                    ['index' => 2, 'label' => 'curious_wide_eyes'],
+                    ['index' => 3, 'label' => 'smirk_alert'],
+                    ['index' => 4, 'label' => 'perk_sparkle_fangs'],
+                    ['index' => 5, 'label' => 'puffed_cheeks_content'],
+                    ['index' => 6, 'label' => 'cheer_laugh_open_mouth'],
+                    ['index' => 7, 'label' => 'settle_sparkle_grin'],
+                ],
+                'animations' => [
+                    'idle' => [0, 1],
+                    'fidget' => [3],
+                    'happy' => [5],
+                    'excited' => [4, 5, 6, 7],
+                    'interaction' => [2],
                 ],
             ],
         ];

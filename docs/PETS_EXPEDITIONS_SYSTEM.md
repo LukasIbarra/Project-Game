@@ -24,6 +24,18 @@
   reutiliza `expedition_rewards` con procedencia preservada
   (`expedition_loot` vs `event_loot` en `result_data_json`, `checkpoint_id`
   por entrada). Ver ROADMAP.md Fase 21 para el detalle completo del cierre.
+  **Ajuste posterior, ya parte del comportamiento definitivo (§8/§11):**
+  `checkpoint_event_chance_pct` por sí solo permitía completar una
+  expedición corta sin ningún checkpoint mecánico (~49% de chance en el
+  piso de 3 checkpoints). `config('expeditions.min_event_checkpoints')`
+  (default `1`) agrega una GARANTÍA separada de la PROBABILIDAD: después de
+  rifar el % como siempre, si faltan checkpoints `event` para llegar al
+  mínimo, `planCheckpoints()` sube de `narrative` a `event` los que falten
+  entre los elegibles (`sequence>0`) -determinista, sin tirar dados de
+  nuevo, sin tocar el primer checkpoint, solo si hay contenido mecánico
+  disponible-. Sigue sin elegir el `EventDefinition` concreto -eso sigue
+  siendo trabajo exclusivo de `resolveDueCheckpoints()`, intacto-. Ver
+  ROADMAP.md Fase 21 ("Ajuste posterior") para el detalle completo.
 - **§3.9 (más abajo) queda desactualizado**: en su momento no se encontró
   `CLAUDE.md` en el repo; existe y está en `project/CLAUDE.md` (confirmado
   en la auditoría de F21) — se deja la sección original sin reescribir para

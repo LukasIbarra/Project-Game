@@ -133,6 +133,16 @@ class ExpeditionService
     // -solo si la expedición tiene al menos un evento mecánico disponible,
     // si no, cae a narrative siempre (degradación segura, nunca un
     // checkpoint "vacío"). Cero condicionales por expedition key.
+    //
+    // Ajuste post-F22: GARANTÍA MÍNIMA separada de la PROBABILIDAD de
+    // arriba -config('expeditions.min_event_checkpoints')-. Sin esto, una
+    // expedición corta (piso de 3 checkpoints, solo 2 elegibles) tenía
+    // ~49% de chance real de terminar sin ningún checkpoint mecánico. Se
+    // aplica DESPUÉS de rifar el % (nunca lo reemplaza): si ya se cumplió
+    // por azar no hace nada; si no, sube de narrative a event los
+    // checkpoints elegibles (sequence>0) que falten, de atrás para
+    // adelante, sin volver a tirar dados y sin tocar sequence=0. Sigue sin
+    // elegir el EventDefinition concreto -eso es resolveDueCheckpoints()-.
     private function planCheckpoints(
         PetExpedition $expedition,
         ExpeditionDefinition $definition,
@@ -149,16 +159,33 @@ class ExpeditionService
 
         $hasMechanicalEvents = $this->hasMechanicalEventsAvailable($definition);
         $eventChancePct = (int) config('expeditions.checkpoint_event_chance_pct', 0);
+        $minEventCheckpoints = (int) config('expeditions.min_event_checkpoints', 0);
+
+        $kinds = [];
+        foreach ($offsets as $sequence => $offsetMinutes) {
+            $isEvent = $sequence > 0 && $hasMechanicalEvents && random_int(1, 100) <= $eventChancePct;
+            $kinds[$sequence] = $isEvent ? CheckpointKind::Event : CheckpointKind::Narrative;
+        }
+
+        if ($hasMechanicalEvents && $minEventCheckpoints > 0) {
+            $eventCount = count(array_filter($kinds, fn (CheckpointKind $kind) => $kind === CheckpointKind::Event));
+            $deficit = $minEventCheckpoints - $eventCount;
+
+            for ($sequence = $count - 1; $sequence > 0 && $deficit > 0; $sequence--) {
+                if ($kinds[$sequence] === CheckpointKind::Narrative) {
+                    $kinds[$sequence] = CheckpointKind::Event;
+                    $deficit--;
+                }
+            }
+        }
 
         $rows = [];
         foreach ($offsets as $sequence => $offsetMinutes) {
-            $isEvent = $sequence > 0 && $hasMechanicalEvents && random_int(1, 100) <= $eventChancePct;
-
             $rows[] = [
                 'pet_expedition_id' => $expedition->id,
                 'sequence' => $sequence,
                 'scheduled_at' => $startedAt->clone()->addMinutes($offsetMinutes),
-                'kind' => ($isEvent ? CheckpointKind::Event : CheckpointKind::Narrative)->value,
+                'kind' => $kinds[$sequence]->value,
                 'status' => CheckpointStatus::Pending->value,
                 'created_at' => now(),
                 'updated_at' => now(),

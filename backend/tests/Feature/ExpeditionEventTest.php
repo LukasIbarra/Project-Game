@@ -438,7 +438,12 @@ class ExpeditionEventTest extends TestCase
         // aplicando daño más de una vez y rompiendo la aritmética exacta
         // que este test necesita -se fuerza UN solo checkpoint a
         // kind=event a mano, para un escenario 100% determinista.
+        // min_event_checkpoints en 0 también: si no, la garantía mínima
+        // (ajuste post-F22) forzaría un SEGUNDO checkpoint a kind=event por
+        // su cuenta -el mismo problema de doble-daño que el comentario de
+        // arriba ya explica-, ver ExpeditionService::planCheckpoints().
         Config::set('expeditions.checkpoint_event_chance_pct', 0);
+        Config::set('expeditions.min_event_checkpoints', 0);
 
         [, $token] = $this->characterWithToken();
         $pet = $this->petFor($token);

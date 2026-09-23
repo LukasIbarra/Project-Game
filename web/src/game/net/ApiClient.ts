@@ -288,20 +288,36 @@ export interface PetExpedition {
   event_loot: (PetReward & { checkpoint_id: number })[];
 }
 
-// F23: metadata del spritesheet real de cada especie (grid uniforme de
-// frames cuadrados, sin padding entre celdas -ver PetSpeciesAdoptionSeeder).
-// `idle_frames` es lo único que consume la animación mínima de esta fase;
-// `expression_frames` queda documentado/disponible para cuando se
-// implementen las expresiones (happy/fed/expedition/hurt/interact), no se
-// usa todavía.
+// F23 (ajuste post-F23): metadata del spritesheet real de cada especie
+// (grid uniforme de frames cuadrados, sin padding entre celdas -ver
+// PetSpeciesAdoptionSeeder). `frames` documenta los 8 frames uno por uno
+// (index + label corto, inspección visual real -no inventado por índice-).
+// `animations` agrupa esos frames en 5 estados con el MISMO vocabulario en
+// las 5 especies (idle/fidget/happy/excited/interaction) -los ÍNDICES que
+// usa cada uno varían por especie según lo que realmente muestra su
+// spritesheet, pero las claves nunca cambian, así el renderer de /pet
+// nunca condiciona por species key-.
+export interface PetSpriteFrameDto {
+  index: number;
+  label: string;
+}
+
+export interface PetSpriteAnimationsDto {
+  idle: number[];
+  fidget: number[];
+  happy: number[];
+  excited: number[];
+  interaction: number[];
+}
+
 export interface PetSpriteMetaDto {
   file: string;
   frame_width: number;
   frame_height: number;
   columns: number;
   rows: number;
-  idle_frames: number[];
-  expression_frames: Record<string, number[]>;
+  frames: PetSpriteFrameDto[];
+  animations: PetSpriteAnimationsDto;
 }
 
 export interface Pet {

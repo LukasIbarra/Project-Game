@@ -10,6 +10,7 @@ use App\Models\Recipe;
 use App\Models\User;
 use App\Services\ActivityLogger;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
+use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
 // Fase 12: feed de actividad reciente. Cubre: persistencia genérica del
@@ -133,6 +134,14 @@ class ActivityTest extends TestCase
 
     public function test_reclamar_expedicion_registra_evento_expedition_claimed(): void
     {
+        // Este test prueba el activity_event de claim, no el sistema de
+        // eventos (F22) -fuerza 100% narrative para que sea determinista y
+        // no dependa de si un checkpoint real termina en awaiting_decision
+        // (que bloquearía el claim() de más abajo con 409). Ver el mismo
+        // criterio en ExpeditionTest.php::setUp().
+        Config::set('expeditions.checkpoint_event_chance_pct', 0);
+        Config::set('expeditions.min_event_checkpoints', 0);
+
         [$character, $token] = $this->characterWithToken();
 
         // F23: GET /pet ya no auto-crea nada -adopta un starter primero.

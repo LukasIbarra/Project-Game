@@ -10,6 +10,7 @@ use App\Models\PetSpecies;
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
 // F23 (docs/PETS_EXPEDITIONS_SYSTEM.md, adopción/colección): catálogo de
@@ -242,6 +243,15 @@ class PetAdoptionTest extends TestCase
     // rompe su estado -la expedición sigue perteneciendo a la Pet original.
     public function test_cambiar_mascota_activa_durante_una_expedicion_no_la_reasigna(): void
     {
+        // Este test prueba pet_id/active_pet_id, no el sistema de eventos
+        // (F22) -fuerza 100% narrative para que sea determinista y no
+        // dependa de si un checkpoint real termina en awaiting_decision
+        // (que bloquearía el claim() de más abajo con 409, sin relación
+        // con lo que este test verifica). Ver el mismo criterio en
+        // ExpeditionTest.php::setUp().
+        Config::set('expeditions.checkpoint_event_chance_pct', 0);
+        Config::set('expeditions.min_event_checkpoints', 0);
+
         [$character, $token] = $this->characterWithToken(coins: 500);
         $kitsuId = $this->withToken($token)->postJson('/api/v1/pet/adopt', ['species_key' => 'kitsu'])->json('id');
         $lumioId = $this->withToken($token)->postJson('/api/v1/pet/species/lumio/purchase')->json('id');
@@ -307,7 +317,8 @@ class PetAdoptionTest extends TestCase
         $response->assertOk();
         $response->assertJsonPath('sprite.file', '/assets/pets/Kitsu.png');
         $response->assertJsonPath('sprite.frame_width', 443);
-        $response->assertJsonPath('sprite.idle_frames', [0, 1]);
+        $response->assertJsonPath('sprite.animations.idle', [0, 1]);
+        $this->assertCount(8, $response->json('sprite.frames'), 'Los 8 frames del spritesheet deben quedar documentados.');
     }
 
     // ===================== Migración legacy =====================
