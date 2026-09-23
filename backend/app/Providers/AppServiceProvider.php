@@ -50,5 +50,20 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('presence.position', function (Request $request) {
             return Limit::perMinute(240)->by($request->user()?->id ?: $request->ip());
         });
+
+        // F22 (auditoría de 429 en producción): tráfico de fondo/lectura
+        // frecuente -heartbeat, lista de presencia, character, activity,
+        // chat GET, pet- competía por el MISMO balde de 60/min que
+        // acciones deliberadas del jugador (crafting, comprar, decidir un
+        // evento, chatear). Mismo criterio exacto que presence.position en
+        // F19.6: un limiter propio y más generoso para tráfico de
+        // polling, para que no le saque presupuesto a lo que sí importa
+        // limitar de cerca. 120/min cubre GlobalChat (ver POLL_INTERVAL_MS,
+        // bajado de 2.5s a 15s en esta misma fase) + PlayersOnline
+        // (heartbeat 25s + poll 11s) + un poll ocasional de /pet, con
+        // margen real.
+        RateLimiter::for('polling', function (Request $request) {
+            return Limit::perMinute(120)->by($request->user()?->id ?: $request->ip());
+        });
     }
 }

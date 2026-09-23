@@ -77,7 +77,15 @@ import Icon from "../ui/Icon.astro";
   } from "../../game/net/ApiClient";
   import { getEcho } from "../../game/net/Realtime";
 
-  const POLL_INTERVAL_MS = 2500;
+  // F22 (auditoría de 429): bajado de 2.5s -> 15s. Reverb (ver
+  // createWebSocketSource más abajo) ya es la vía primaria confirmada
+  // funcionando; este polling es solo un fallback de respaldo por si
+  // Reverb no está disponible, y a 2.5s consumía ~24 req/min -~40% del
+  // límite global- en TODA página (GlobalChat vive en AppShell), compitiendo
+  // con acciones deliberadas del jugador por el mismo presupuesto. 15s
+  // sigue dando una recuperación razonable si el WebSocket falla, sin
+  // acaparar el throttle.
+  const POLL_INTERVAL_MS = 15000;
   const NEAR_BOTTOM_PX = 24;
 
   // Mismo breakpoint "md" que ya usa Tailwind acá (ver clases del

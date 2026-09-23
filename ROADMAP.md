@@ -56,14 +56,15 @@ auditoría real de código/git de esta revisión (ver estado de fases y registro
 de cierre abajo).
 
 **Estamos en una etapa de expansión de sistemas y contenido, no de
-fundamentos.** El foco actual es rediseñar el motor de Mascotas + Expediciones
-para que deje de ser un sistema AFK secundario ("elegí, esperá, reclamá") y
-pase a resolver eventos server-side en tiempo real (checkpoints, sin
-precalcular todo al iniciar) con loot tables normalizadas y, más adelante,
-decisiones reales del jugador. Ese trabajo tiene su propio documento de
-diseño profundo, `docs/PETS_EXPEDITIONS_SYSTEM.md`, que es la fuente de
-verdad específica para ese sistema (ver nota de reconciliación de
-numeración en la sección de Fase 20 más abajo).
+fundamentos.** El motor de Mascotas + Expediciones ya dejó de ser un sistema
+AFK secundario ("elegí, esperá, reclamá"): resuelve eventos server-side en
+su momento real (checkpoints, sin precalcular todo al iniciar), con loot
+tables normalizadas y decisiones reales del jugador (checkpoints
+interactivos tipo cofre/enemigo/ayuda, Fase 21). Ese trabajo tiene su
+propio documento de diseño profundo, `docs/PETS_EXPEDITIONS_SYSTEM.md`, que
+sigue siendo la fuente de verdad específica para ese sistema (ver su propia
+sección de estado de implementación, y la nota de reconciliación de
+numeración en la Fase 20 más abajo).
 
 ---
 
@@ -81,8 +82,8 @@ numeración en la sección de Fase 20 más abajo).
 | **17** | **Historial de Combates + Ataques Recibidos** | ✅ **Completada** |
 | **18** | **Presencia (jugadores conectados)** | ✅ **Completada** (auditoría de esta revisión — ver registro de cierre) |
 | **19** | **Otros jugadores visibles en el Mundo** | ✅ **Completada** (auditoría de esta revisión — ver registro de cierre) |
-| **20** | **Base de Mascotas + Motor de expediciones realmente temporal** | 🔶 **En curso** — base (especies/alimentación) completada; motor temporal (checkpoints/loot tables) en implementación activa. Ver nota de reconciliación de numeración abajo y `docs/PETS_EXPEDITIONS_SYSTEM.md` |
-| 21 | Eventos interactivos de expedición con decisión | ⬜ Pendiente (depende de que 20 cierre) |
+| **20** | **Base de Mascotas + Motor de expediciones realmente temporal** | ✅ **Completada** — base (especies/alimentación) + motor temporal (checkpoints/loot tables). Ver nota de reconciliación de numeración abajo y `docs/PETS_EXPEDITIONS_SYSTEM.md` |
+| **21** | **Eventos interactivos de expedición con decisión** | ✅ **Completada** — ver registro de cierre |
 | 22 | Mundo vivo: eventos ambientales básicos | ⬜ Pendiente |
 | 23 | Sonidos | ⬜ Pendiente |
 | 24 | Pulido de Demo / QA end-to-end | ⬜ Pendiente |
@@ -278,14 +279,13 @@ documentada al principio de este archivo, no oculta.
 
 ---
 
-### FASE 20 — Base de Mascotas + Motor de expediciones realmente temporal 🔶 EN CURSO
+### FASE 20 — Base de Mascotas + Motor de expediciones realmente temporal ✅ COMPLETADA
 
 > Ver "Nota de reconciliación de numeración" más arriba — esta fase absorbe
 > lo que `docs/PETS_EXPEDITIONS_SYSTEM.md` llama internamente `F20` (base de
-> especies/alimentación, **ya completada**) y `F21` (motor temporal de
-> checkpoints, **en curso ahora**). El diseño detallado y las decisiones de
-> arquitectura de todo este bloque viven en ese documento, no acá — esta
-> sección es solo seguimiento de alto nivel.
+> especies/alimentación) y `F21` (motor temporal de checkpoints). El diseño
+> detallado y las decisiones de arquitectura de todo este bloque viven en
+> ese documento, no acá — esta sección es solo seguimiento de alto nivel.
 
 **Objetivo:** que el resultado de cada checkpoint de una expedición se genere
 server-side EN EL MOMENTO en que corresponde — nunca al iniciar la
@@ -303,19 +303,19 @@ modificadores vía JSON tipado), migración real de `pets.key` (string suelto)
 alimentación con EXP/level-up, `PetModifierResolver` (sin consumidor real
 todavía — lo consume la Parte 2). Ver registro de cierre.
 
-**Parte 2 — Motor temporal (`F21` de `PETS_EXPEDITIONS_SYSTEM.md`) — 🔶 en
-implementación activa ahora:** `pet_destinations` evoluciona a
-`expedition_definitions` (conserva las keys `forest`/`mountains`/
-`blood_castle` — ver Fase B/plan de la sesión activa), tabla nueva
-`pet_expedition_checkpoints` (`kind: narrative|event`, `status:
+**Parte 2 — Motor temporal (`F21` de `PETS_EXPEDITIONS_SYSTEM.md`) — ✅
+completada:** `pet_destinations` evolucionó a `expedition_definitions`
+(conserva las keys `forest`/`mountains`/`blood_castle`, agrega
+`windy_hills`/`ancient_ruins`/`cursed_swamp` — catálogo de 6 expediciones),
+tabla `pet_expedition_checkpoints` (`kind: narrative|event`, `status:
 pending|awaiting_decision|resolved`, `payload` null hasta resolverse), tabla
-nueva `expedition_rewards` (loot table normalizada con pesos/rareza,
-reemplaza `loot_pool_json`), fix del bug de doble-claim conocido
+`expedition_rewards` (loot table normalizada con pesos/rareza, reemplaza
+`loot_pool_json`), fix del bug de doble-claim conocido
 (`PetExpeditionService::claim()` sin lock — ver
 `docs/PETS_EXPEDITIONS_SYSTEM.md` §3.4). Checkpoints 100% narrativos en esta
-parte — los checkpoints tipo evento (cofre/enemigo/ayuda) con consecuencias
-mecánicas quedan preparados en el esquema pero sin resolver contenido real
-todavía (eso es la Fase 21 de este roadmap / `F22` del documento específico).
+parte -los checkpoints tipo evento (cofre/enemigo/ayuda) con consecuencias
+mecánicas reales se implementaron en la Fase 21 de este roadmap (`F22` del
+documento específico), ver su registro de cierre-.
 
 **Riesgo:** mismo patrón lectura-decide-escribe-bajo-concurrencia que ya
 causó SQLSTATE 25P02 en el pasado contra Neon — el backend de producción
@@ -329,24 +329,103 @@ con consecuencias mecánicas reales (Fase 21).
 
 ---
 
-### FASE 21 — Eventos interactivos de expedición con decisión del jugador
+### FASE 21 — Eventos interactivos de expedición con decisión del jugador ✅ COMPLETADA
 
 > Equivale a `F22` en la numeración interna de
 > `docs/PETS_EXPEDITIONS_SYSTEM.md` — ver nota de reconciliación arriba.
 
 **Objetivo:** checkpoints tipo `event` (cofre/enemigo/ayuda) con
-`[ENFRENTAR]/[HUIR]` u opciones equivalentes, resueltos por el jugador, con
-timeout+default si no está online.
-**Backend:** `expedition_event_definitions` (catálogo, tipo discriminado +
-`config_json`) gana tipos con consecuencia real más allá de `narrative`;
-`pet_expedition_checkpoints.status = awaiting_decision` pasa a usarse de
-verdad (el esquema ya lo soporta desde la Fase 20).
-**API:** `POST /v1/pet/expeditions/checkpoints/{id}/decide` (el endpoint ya
-se prepara en la Fase 20 con locking/idempotencia real, aunque sin
-checkpoints reales en ese estado todavía).
-**Dependencias:** Fase 20 (obligatoria — checkpoints/loot tables deben
-existir primero), Fase 12/14.
-**Qué NO hacer todavía:** más de una decisión por expedición, branching.
+`[ENFRENTAR]/[HUIR]` u opciones equivalentes, resueltos por el jugador.
+
+**Implementado:**
+- `ExpeditionEventType` gana `Chest`/`Enemy`/`Help` (junto a `Narrative`,
+  ya existente). `requires_decision` vive en `config_json` de cada evento
+  -nunca se infiere del `type`-: gobierna si un checkpoint pausa en
+  `awaiting_decision` o se auto-resuelve con consecuencia real, igual que
+  narrative pero con daño/loot de verdad.
+- `ExpeditionService::planCheckpoints()` marca checkpoints como
+  `kind=event` con una probabilidad configurable
+  (`config('expeditions.checkpoint_event_chance_pct')`, 30% de partida,
+  sin número mágico en el service) — solo si la expedición tiene contenido
+  mecánico disponible (universal o propio); si no, cae a 100% narrative
+  (degradación segura). El primer checkpoint de toda expedición es
+  siempre narrative.
+- `resolveDueCheckpoints()` se detiene exactamente en el primer checkpoint
+  que queda `awaiting_decision` -los siguientes quedan `pending` intactos,
+  nunca se saltean-. `decide()` re-verifica el estado dentro del lock
+  (idempotente ante carrera), aplica la consecuencia UNA sola vez, y
+  **continúa** resolviendo lo que siga vencido de la misma expedición,
+  deteniéndose de nuevo si aparece otra decisión -el motor soporta N
+  decisiones por expedición aunque el contenido actual normalmente tenga
+  como mucho una-.
+- Resolvers por `type` (`resolveEnemyOutcome`/`resolveChestOutcome`/
+  `resolveHelpOutcome`), nunca por `expedition_key`: `enemy` con
+  `decide(fight/flee)` tira `win_chance_base`; `chest`/`help` auto-resuelven
+  contra `open_odds`/`success_chance`. Derrota/trampa/fallo aplican daño
+  inmediato a `pet.health` (clamped); victoria/loot/éxito conceden una
+  tirada ponderada adicional contra `expedition_rewards` -**mismo loot
+  table de F21, nunca una tabla paralela**-.
+- **Procedencia del loot preservada**: `result_data_json` separa
+  `expedition_loot` (roll final al completar, ya existía) de `event_loot`
+  (acumulado por checkpoint, cada entrada con `checkpoint_id`). El payload
+  de cada checkpoint conserva su resultado concreto (`outcome`, `decision`,
+  `damage`, `loot`) para historial/replay. `claim()` concede la unión de
+  ambas fuentes, sigue siendo idempotente (fix de doble-claim de F21
+  intacto).
+- `expedition_event_definitions` gana 12 filas mecánicas nuevas
+  (`ExpeditionMechanicalEventSeeder`): 6 universales (2 enemy/2 chest/2
+  help) + 6 flavor temático (1 enemy por cada una de las 6 expediciones),
+  conviven con los 108 narrativos de F21 sin reemplazarlos.
+- **API**: `PetPresenter::checkpoint()` expone `event` (título/texto/
+  opciones) cuando `status=awaiting_decision` -separado de `payload`, que
+  sigue siendo estrictamente "resultado ya calculado", nunca un adelanto-.
+  `PetExpeditionController::decide()` valida la decisión contra las
+  opciones reales del evento (422 si no es válida) antes de delegar al
+  service.
+- **UX de `/pet`** (acotada, sin arte definitivo): selector de
+  expediciones pasa de grilla 3x2 fija a carrusel (3 tarjetas en desktop /
+  2 tablet / 1 mobile, avanza de a una, sin librerías externas — flex +
+  `transform`); recompensas colapsadas por defecto, una fila por
+  recompensa ordenada de mayor a menor % (empate determinista por id);
+  nuevo bloque "evento interactivo" con título/texto/botones cuando hay un
+  checkpoint `awaiting_decision`.
+- **429 (auditoría de producción)**: `GlobalChat.astro` bajó su polling de
+  fallback de 2.5s a 15s (Reverb ya es la vía primaria confirmada
+  funcionando); nuevo limiter `throttle:polling` (120/min) para
+  `/character`, `/pet`, `/activity`, `/presence`, `/presence/heartbeat` y
+  `GET /chat/messages` -tráfico de fondo sacado del balde compartido
+  `throttle:api` (60/min), mismo criterio que `presence.position` en
+  F19.6-. Límite global `api` sin cambios. La deduplicación de
+  `getPresence()` entre `WorldScene.ts` (filtrado por mapa) y
+  `PlayersOnline.astro` (global) quedó **fuera de alcance** -son consultas
+  genuinamente distintas, deduplicarlas requeriría una capa de caché
+  compartida nueva, no un fix chico- y queda documentada como deuda.
+
+**Tests:** `ExpeditionEventTest.php` (13, nuevo) — planificación narrative/
+event, sin RNG anticipado, awaiting_decision expone el evento real,
+decide()/decisión inválida/flee sin consecuencia, catch-up detenido en la
+primera decisión y continuado tras decidir, chest auto-resuelve, daño
+inmediato, narrative conviviendo con event, claim combinando ambas fuentes
+de loot de forma idempotente. `ExpeditionTest.php`/`ExpeditionCheckpointTest.php`
+(F21) actualizados para ser deterministas frente al nuevo % de eventos
+(`Config::set('expeditions.checkpoint_event_chance_pct', 0)` en su
+`setUp()` — no son tests de F22, siguen probando el flujo narrativo puro).
+
+**Verificado:** `php artisan test` 246/248 (los 2 fallos son `ChatTest`,
+pre-existentes desde Fase 13, datos reales acumulados en `chat_messages` —
+no relacionados). `tsc --noEmit` y `astro build` limpios. **No verificado
+en navegador real** -sin herramienta de automatización de navegador
+disponible en esta sesión, a diferencia de fases anteriores que sí usaron
+Playwright-; la UI se validó por lectura de código + type-check + build,
+no por interacción real.
+
+**Qué NO se implementó (a propósito):** más de una decisión "en paralelo"
+por expedición (el motor lo soporta si el contenido lo generara, pero no
+hay contenido sembrado con dos eventos de decisión seguidos), timeout/
+default automático si el jugador no decide (la expedición simplemente
+espera), branching narrativo complejo, balance real de probabilidades (F23),
+imágenes/ilustraciones por expedición ni rediseño artístico definitivo del
+selector.
 
 ---
 

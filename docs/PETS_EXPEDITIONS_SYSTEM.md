@@ -5,6 +5,37 @@
 > Cuando se diga "Implementa F20 siguiendo este documento", este es el
 > contrato a seguir.
 
+## 0. Estado de implementación (actualizado tras F22 — sección viva, no de diseño)
+
+- **F20 (base de especies/alimentación) — ✅ implementado.** `pet_species`,
+  migración de `pets.key`→`pets.species_id`, `pet_food_items`,
+  `PetModifierResolver`. Ver ROADMAP.md Fase 20, Parte 1.
+- **F21 (motor temporal + checkpoints + loot normalizado) — ✅
+  implementado.** `expedition_definitions` (6 expediciones reales),
+  `expedition_rewards`, `expedition_event_definitions`,
+  `pet_expedition_checkpoints`, `ExpeditionService` con
+  `start()`/`resolveDueCheckpoints()`/`decide()`/`claim()`, fix del bug de
+  doble-claim de §3.4. Checkpoints eran 100% `kind=narrative` al cerrar
+  esta fase. Ver ROADMAP.md Fase 20, Parte 2.
+- **F22 (eventos interactivos: chest/enemy/help) — ✅ implementado.**
+  Checkpoints `kind=event` con consecuencia mecánica real, `requires_decision`
+  gobierna pausa en `awaiting_decision` (vive en `config_json`, no se infiere
+  del `type`), resolvers por tipo (nunca por destino), loot de evento
+  reutiliza `expedition_rewards` con procedencia preservada
+  (`expedition_loot` vs `event_loot` en `result_data_json`, `checkpoint_id`
+  por entrada). Ver ROADMAP.md Fase 21 para el detalle completo del cierre.
+- **§3.9 (más abajo) queda desactualizado**: en su momento no se encontró
+  `CLAUDE.md` en el repo; existe y está en `project/CLAUDE.md` (confirmado
+  en la auditoría de F21) — se deja la sección original sin reescribir para
+  no perder el rastro del hallazgo, pero la afirmación de que no existe es
+  falsa.
+- **Pendiente real (no confundir con "no implementado a propósito"):** F23
+  (fórmula de balance §10, no implementada — los `BASE_BUDGET`/
+  `DURATION_EXPONENT`/etc. siguen siendo propuesta), F24 (UX rica de
+  timeline/alertas), F25 (adquisición/gacha). El resto de este documento
+  (§1-20) sigue siendo el diseño original tal como se escribió — léelo como
+  intención/arquitectura, no como "todavía no existe nada de esto".
+
 ## 1. Objetivo del sistema
 
 Mascotas + Expediciones dejan de ser un sistema AFK secundario ("elegí un

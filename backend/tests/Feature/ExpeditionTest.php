@@ -9,6 +9,7 @@ use App\Models\Pet;
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
 // F21: reemplaza PetExpeditionTest -el contrato cambió por completo
@@ -20,6 +21,18 @@ use Tests\TestCase;
 class ExpeditionTest extends TestCase
 {
     use DatabaseTransactions;
+
+    // F22: este archivo prueba el flujo F21 (planificación/catch-up/claim)
+    // sobre destinos reales -fuerza 0% de checkpoints kind=event para que
+    // sea determinista (sin esto, un checkpoint podía volverse un enemy
+    // awaiting_decision al azar y bloquear la expedición antes de
+    // completar, haciendo estos tests flaky). El comportamiento con
+    // eventos reales vive en ExpeditionEventTest.php.
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Config::set('expeditions.checkpoint_event_chance_pct', 0);
+    }
 
     protected function tearDown(): void
     {
@@ -63,9 +76,14 @@ class ExpeditionTest extends TestCase
 
         $checkpoints = $response->json('checkpoints');
         $this->assertNotEmpty($checkpoints);
+        // El primero SIEMPRE es narrative (apertura de la expedición); a
+        // partir de ahí puede haber kind=event (F22) según
+        // config('expeditions.checkpoint_event_chance_pct') -lo que nunca
+        // cambia es que NINGUNO trae payload todavía (nada se pre-rollea).
+        $this->assertSame('narrative', $checkpoints[0]['kind']);
         foreach ($checkpoints as $checkpoint) {
             $this->assertSame('pending', $checkpoint['status']);
-            $this->assertSame('narrative', $checkpoint['kind']);
+            $this->assertContains($checkpoint['kind'], ['narrative', 'event']);
             $this->assertNull($checkpoint['payload']);
         }
     }

@@ -96,6 +96,16 @@ import GamePanel from "../components/ui/GamePanel.astro";
 					</button>
 				</div>
 
+				<!-- F22: evento interactivo -solo visible cuando hay un
+				     checkpoint awaiting_decision. Título/texto/opciones salen
+				     del backend (PetPresenter::checkpointEvent), nunca
+				     inventados acá. -->
+				<div id="event-section" class="hidden mt-3 flex-col gap-2 border-t border-outline-strong pt-3">
+					<p class="m-0 font-mono text-[0.65rem] uppercase tracking-wide text-cyan" id="event-title"></p>
+					<p class="m-0 text-sm text-text" id="event-text"></p>
+					<div id="event-options" class="flex flex-wrap gap-2"></div>
+				</div>
+
 				<div id="narrative-section" class="hidden mt-3 flex-col gap-2 border-t border-outline-strong pt-3">
 					<p class="m-0 font-mono text-[0.65rem] uppercase tracking-wide text-cyan">📖 Bitácora de aventura</p>
 					<p id="narrative-empty" class="m-0 hidden text-sm italic text-muted">
@@ -106,8 +116,32 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			</GamePanel>
 		</div>
 
-		<GamePanel title="Destinos" bodyClass="grid gap-3 p-5 sm:grid-cols-3">
-			<div id="destinations-list" class="contents"></div>
+		<GamePanel title="Destinos" bodyClass="flex flex-col gap-3 p-5">
+			<!-- F22: carrusel (desktop 3 visibles / tablet 2 / mobile 1),
+			     avanza de a UNA tarjeta -ver script, calcCarousel()/
+			     renderCarousel(). Sin librerías externas: overflow-hidden +
+			     una pista flex movida con transform. -->
+				<div class="flex items-center gap-2">
+					<button
+						id="carousel-prev"
+						type="button"
+						aria-label="Expedición anterior"
+						class="border-2 border-cyan px-2 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-cyan"
+					>
+						◀
+					</button>
+					<div id="carousel-viewport" class="flex-1 overflow-hidden">
+						<div id="destinations-list" class="flex" style="transition: transform 200ms ease;"></div>
+					</div>
+					<button
+						id="carousel-next"
+						type="button"
+						aria-label="Siguiente expedición"
+						class="border-2 border-cyan px-2 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-cyan"
+					>
+						▶
+					</button>
+				</div>
 		</GamePanel>
 
 		<GamePanel title="Historial de expediciones" bodyClass="flex flex-col gap-2 p-5">
@@ -121,6 +155,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	import {
 		ApiError,
 		claimExpedition,
+		decideCheckpoint,
 		feedPet,
 		getExpeditionDefinitions,
 		getExpeditionHistory,
@@ -128,6 +163,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		getPet,
 		getPetFood,
 		startExpedition,
+		type ExpeditionDefinitionDto,
 		type ItemDto,
 		type Pet,
 		type PetExpeditionCheckpoint,
@@ -157,6 +193,13 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	const completedLootEl = document.getElementById("completed-loot")!;
 	const claimButton = document.getElementById("claim-button") as HTMLButtonElement;
 
+	const eventSectionEl = document.getElementById("event-section")!;
+	const eventTitleEl = document.getElementById("event-title")!;
+	const eventTextEl = document.getElementById("event-text")!;
+	const eventOptionsEl = document.getElementById("event-options")!;
+
+	const carouselPrevButton = document.getElementById("carousel-prev") as HTMLButtonElement;
+	const carouselNextButton = document.getElementById("carousel-next") as HTMLButtonElement;
 	const destinationsListEl = document.getElementById("destinations-list")!;
 	const historyListEl = document.getElementById("history-list")!;
 	const historyEmptyEl = document.getElementById("history-empty")!;
@@ -214,6 +257,24 @@ import GamePanel from "../components/ui/GamePanel.astro";
 
 	function stars(difficulty: number): string {
 		return "★".repeat(difficulty) + "☆".repeat(Math.max(0, 5 - difficulty));
+	}
+
+	// F22: opciones de decisión son datos (config_json.options), no un
+	// vocabulario fijo -este mapa es solo presentación en español para las
+	// opciones conocidas hoy; cualquier opción futura no mapeada cae a su
+	// propio valor con mayúscula inicial, nunca se rompe por una opción
+	// nueva que el backend agregue.
+	const DECISION_LABELS: Record<string, string> = {
+		fight: "Enfrentar",
+		flee: "Huir",
+		open: "Abrir",
+		leave: "Dejarlo",
+		help: "Ayudar",
+		ignore: "Ignorar",
+	};
+
+	function decisionLabel(option: string): string {
+		return DECISION_LABELS[option] ?? option.charAt(0).toUpperCase() + option.slice(1);
 	}
 
 	function formatCountdown(msRemaining: number): string {
@@ -292,6 +353,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		}
 
 		renderNarrativeLog(expedition);
+		renderEvent(expedition);
 
 		if (expedition.status === "active") {
 			statusExploringEl.classList.remove("hidden");
@@ -394,23 +456,126 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		}
 	}
 
+	// F22: checkpoint awaiting_decision -título/texto/opciones vienen
+	// resueltos del backend (PetPresenter::checkpointEvent), el cliente
+	// solo los pinta y arma un botón por opción. Decidir llama decide(),
+	// refresca todo el estado (igual que reclamar/alimentar) y muestra la
+	// consecuencia real vía toast -nunca se calcula nada acá-.
+	function renderEvent(expedition: NonNullable<Pet["expedition"]>): void {
+		const awaiting = expedition.checkpoints.find((c) => c.status === "awaiting_decision" && c.event);
+
+		if (!awaiting || !awaiting.event) {
+			eventSectionEl.classList.add("hidden");
+			eventSectionEl.classList.remove("flex");
+			eventOptionsEl.innerHTML = "";
+			return;
+		}
+
+		eventSectionEl.classList.remove("hidden");
+		eventSectionEl.classList.add("flex");
+		eventTitleEl.textContent = awaiting.event.title ?? "Un evento inesperado";
+		eventTextEl.textContent = awaiting.event.text;
+
+		eventOptionsEl.innerHTML = "";
+		for (const option of awaiting.event.options) {
+			const button = document.createElement("button");
+			button.type = "button";
+			button.textContent = decisionLabel(option);
+			button.className =
+				"border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+			button.addEventListener("click", async () => {
+				for (const btn of eventOptionsEl.querySelectorAll("button")) {
+					(btn as HTMLButtonElement).disabled = true;
+				}
+				try {
+					const result = await decideCheckpoint(awaiting.id, option);
+					const outcome = result.payload?.outcome;
+					const messages: Record<string, string> = {
+						win: "¡Tu mascota ganó el encuentro!",
+						defeat: "Tu mascota resultó herida en el encuentro.",
+						fled: "Tu mascota evitó el peligro.",
+						loot: "Tu mascota encontró algo dentro.",
+						trap: "Era una trampa.",
+						nothing: "No había nada de interés.",
+						left: "Tu mascota siguió de largo.",
+						success: "Tu mascota ayudó con éxito.",
+						failure: "El intento no salió bien.",
+						ignored: "Tu mascota siguió su camino.",
+					};
+					toast.success(outcome ? (messages[outcome] ?? "Decisión aplicada.") : "Decisión aplicada.");
+					await refresh();
+				} catch (err) {
+					toast.error(messageFrom(err, "No se pudo aplicar la decisión."));
+					for (const btn of eventOptionsEl.querySelectorAll("button")) {
+						(btn as HTMLButtonElement).disabled = false;
+					}
+				}
+			});
+			eventOptionsEl.appendChild(button);
+		}
+	}
+
+	// F22: carrusel de destinos -desktop 3 visibles / tablet 2 / mobile 1,
+	// avanza de a UNA tarjeta. Cada tarjeta ocupa 100/visibleCount% del
+	// viewport; la pista completa mide (total/visibleCount)*100% y se
+	// desplaza con translateX en pasos de 100/total% de SU PROPIO ancho
+	// -técnica estándar de carrusel manual, sin librerías-.
+	let carouselExpeditions: ExpeditionDefinitionDto[] = [];
+	let carouselIndex = 0;
+
+	function carouselVisibleCount(): number {
+		const width = window.innerWidth;
+		if (width >= 1024) return 3; // desktop
+		if (width >= 640) return 2; // tablet
+		return 1; // mobile
+	}
+
+	function layoutCarousel(): void {
+		const total = carouselExpeditions.length;
+		if (total === 0) return;
+
+		const visibleCount = carouselVisibleCount();
+		const maxIndex = Math.max(0, total - visibleCount);
+		carouselIndex = Math.min(carouselIndex, maxIndex);
+
+		destinationsListEl.style.width = `${(total / visibleCount) * 100}%`;
+		for (const card of Array.from(destinationsListEl.children)) {
+			(card as HTMLElement).style.width = `${100 / total}%`;
+		}
+		destinationsListEl.style.transform = `translateX(-${carouselIndex * (100 / total)}%)`;
+
+		carouselPrevButton.disabled = carouselIndex <= 0;
+		carouselNextButton.disabled = carouselIndex >= maxIndex;
+	}
+
+	carouselPrevButton.addEventListener("click", () => {
+		carouselIndex = Math.max(0, carouselIndex - 1);
+		layoutCarousel();
+	});
+	carouselNextButton.addEventListener("click", () => {
+		carouselIndex += 1;
+		layoutCarousel();
+	});
+	window.addEventListener("resize", layoutCarousel);
+
 	// F21: reemplaza renderDestinations -mismo patrón visual, ahora con
 	// nivel mínimo (gate real de la mascota) y reward_preview (% ya
-	// calculado server-side, ver PetPresenter::rewardPreview) en vez de
-	// loot_min_tier/loot_max_tier cosméticos.
+	// calculado server-side, ordenado de mayor a menor por
+	// PetPresenter::rewardPreview) en vez de loot_min_tier/loot_max_tier
+	// cosméticos. F22: recompensas colapsadas por defecto (una fila por
+	// recompensa, no un párrafo con comas) + carrusel en vez de grilla
+	// 3x2 fija.
 	async function renderExpeditions(pet: Pet): Promise<void> {
 		const expeditions = await getExpeditionDefinitions();
+		carouselExpeditions = expeditions;
 		const busy = pet.expedition && pet.expedition.status !== "claimed";
 
 		destinationsListEl.innerHTML = "";
 		for (const expedition of expeditions) {
 			const belowLevel = pet.level < expedition.min_pet_level;
-			const previewText = expedition.reward_preview.length
-				? expedition.reward_preview.map((r) => `${r.percent}% ${r.item_name}`).join(", ")
-				: "Sin recompensas configuradas";
 
 			const card = document.createElement("div");
-			card.className = "flex flex-col gap-2 border border-outline-strong p-3";
+			card.className = "flex flex-shrink-0 flex-col gap-2 border border-outline-strong p-3";
 			card.innerHTML = `
 				<span class="text-sm text-text">${expedition.name}</span>
 				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Dificultad</span>
@@ -419,9 +584,38 @@ import GamePanel from "../components/ui/GamePanel.astro";
 				<span class="text-sm ${belowLevel ? "text-red" : "text-text"}">${expedition.min_pet_level}</span>
 				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Tiempo</span>
 				<span class="text-sm text-text">${formatDuration(expedition.duration_seconds)}</span>
-				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Recompensas posibles</span>
-				<span class="text-xs text-muted">${previewText}</span>
 			`;
+
+			const rewardsWrapper = document.createElement("div");
+			rewardsWrapper.className = "flex flex-col gap-1";
+
+			const rewardsToggle = document.createElement("button");
+			rewardsToggle.type = "button";
+			rewardsToggle.className =
+				"w-fit border border-outline-strong px-2 py-1 font-mono text-[0.6rem] uppercase tracking-wide text-muted transition-colors hover:border-cyan hover:text-cyan";
+			rewardsToggle.textContent = "Ver recompensas";
+
+			const rewardsList = document.createElement("div");
+			rewardsList.className = "hidden flex-col gap-1 border-t border-outline-strong pt-2";
+			rewardsList.innerHTML = expedition.reward_preview.length
+				? expedition.reward_preview
+						.map(
+							(reward) =>
+								`<div class="flex items-center justify-between text-xs text-text"><span>${reward.item_name}</span><span class="text-muted">${reward.percent}%</span></div>`
+						)
+						.join("")
+				: `<span class="text-xs text-muted">Sin recompensas configuradas</span>`;
+
+			rewardsToggle.addEventListener("click", () => {
+				const isHidden = rewardsList.classList.contains("hidden");
+				rewardsList.classList.toggle("hidden", !isHidden);
+				rewardsList.classList.toggle("flex", isHidden);
+				rewardsToggle.textContent = isHidden ? "Ocultar" : "Ver recompensas";
+			});
+
+			rewardsWrapper.appendChild(rewardsToggle);
+			rewardsWrapper.appendChild(rewardsList);
+			card.appendChild(rewardsWrapper);
 
 			const button = document.createElement("button");
 			button.type = "button";
@@ -443,6 +637,8 @@ import GamePanel from "../components/ui/GamePanel.astro";
 
 			destinationsListEl.appendChild(card);
 		}
+
+		layoutCarousel();
 	}
 
 	async function renderHistory(): Promise<void> {

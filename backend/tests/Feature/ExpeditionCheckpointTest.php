@@ -13,6 +13,7 @@ use App\Models\User;
 use App\Services\ExpeditionService;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Config;
 use Tests\TestCase;
 
 // F21: cubre el corazón del rediseño -planificación de checkpoints,
@@ -24,6 +25,17 @@ use Tests\TestCase;
 class ExpeditionCheckpointTest extends TestCase
 {
     use DatabaseTransactions;
+
+    // F22: este archivo prueba la maquinaria de checkpoints en general
+    // (planificación/catch-up/anti-repetición narrativa/decide legacy) —
+    // fuerza 0% de checkpoints kind=event para que sea determinista. El
+    // comportamiento con eventos reales (incluido catch-up deteniéndose en
+    // awaiting_decision) vive en ExpeditionEventTest.php.
+    protected function setUp(): void
+    {
+        parent::setUp();
+        Config::set('expeditions.checkpoint_event_chance_pct', 0);
+    }
 
     protected function tearDown(): void
     {
@@ -236,18 +248,38 @@ class ExpeditionCheckpointTest extends TestCase
         $this->assertGreaterThan(0, $resolvedCount);
     }
 
-    // F21 no genera checkpoints en awaiting_decision de forma natural
-    // todavía (eso es F22) -se fuerza el estado directamente para probar
-    // que el locking/idempotencia de decide() ya funciona de verdad, listo
-    // para cuando F22 lo dispare desde un checkpoint real.
+    // Fuerza el estado directamente (en vez de depender de la probabilidad
+    // de planCheckpoints()) para probar el locking/idempotencia de
+    // decide() de forma determinista -win_chance_base=100 hace que
+    // decide('fight') gane siempre, sin flaky-ness. El comportamiento
+    // "natural" (F22 realmente planifica/resuelve hasta llegar acá) se
+    // cubre en ExpeditionEventTest.php.
     private function forceAwaitingDecisionCheckpoint(int $expeditionId): PetExpeditionCheckpoint
     {
+        $event = ExpeditionEventDefinition::create([
+            'expedition_definition_id' => null,
+            'type' => 'enemy',
+            'rarity' => 'common',
+            'weight' => 1,
+            'is_active' => true,
+            'title' => 'Evento de prueba forzado',
+            'text' => 'Un enemigo de prueba bloquea el camino.',
+            'config_json' => [
+                'requires_decision' => true,
+                'options' => ['fight', 'flee'],
+                'win_chance_base' => 100,
+                'loot_on_win_multiplier' => 1.0,
+                'damage_on_loss' => [1, 1],
+            ],
+        ]);
+
         return PetExpeditionCheckpoint::create([
             'pet_expedition_id' => $expeditionId,
             'sequence' => 999,
             'scheduled_at' => now(),
             'kind' => 'event',
             'status' => 'awaiting_decision',
+            'event_definition_id' => $event->id,
             'payload' => null,
         ]);
     }

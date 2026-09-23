@@ -49,11 +49,17 @@ Route::prefix('v1/auth')->group(function () {
 // personaje" del usuario autenticado (Sanctum), nunca de un character_id
 // que mande el cliente (CLAUDE.md principio #1).
 Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
-    Route::get('/character', [CharacterController::class, 'show']);
-
-    // Fase 12: feed de actividad reciente -mismo principio, siempre el
-    // personaje del usuario autenticado, nunca uno que mande el cliente.
-    Route::get('/activity', [ActivityController::class, 'index']);
+    // F22 (auditoría de 429): tráfico de fondo/lectura frecuente -se
+    // consulta en cada carga de página (HUD) y/o se pollea- sacado del
+    // balde compartido `api` (60/min) hacia uno propio más generoso
+    // (`polling`, 120/min, ver AppServiceProvider::boot()), mismo criterio
+    // que presence.position en F19.6: esto es ruido de fondo, no debería
+    // competir por presupuesto con acciones deliberadas del jugador.
+    Route::middleware('throttle:polling')->withoutMiddleware('throttle:api')->group(function () {
+        Route::get('/character', [CharacterController::class, 'show']);
+        Route::get('/activity', [ActivityController::class, 'index']);
+        Route::get('/pet', [PetController::class, 'show']);
+    });
 
     Route::get('/items', [ItemController::class, 'index']);
 
@@ -69,8 +75,8 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     // siempre se deriva del usuario autenticado. Contrato reemplazado por
     // completo en F21 (ver docs/PETS_EXPEDITIONS_SYSTEM.md §13) -sin alias
     // de compatibilidad con las rutas viejas, frontend y backend se
-    // actualizan juntos en la misma fase.
-    Route::get('/pet', [PetController::class, 'show']);
+    // actualizan juntos en la misma fase. GET /pet vive arriba, en el
+    // grupo throttle:polling (F22).
     Route::get('/pet/species', [PetController::class, 'species']);
     Route::get('/pet/expeditions/definitions', [PetController::class, 'expeditionDefinitions']);
     Route::get('/pet/expeditions/current', [PetExpeditionController::class, 'current']);
@@ -125,21 +131,28 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
 
     // Chat global (demo, polling HTTP) -mismo principio que el resto: el
     // usuario que aparece en cada mensaje siempre es el autenticado por
-    // Sanctum, nunca uno que mande el cliente. GET ya cae bajo el limiter
-    // global "api" (60/min, bootstrap/app.php); POST suma un throttle
-    // propio más estricto -mismo patrón que /auth/register|login- porque
-    // es el endpoint que un cliente hostil podría usar para spamear.
-    Route::get('/chat/messages', [ChatController::class, 'index']);
+    // Sanctum, nunca uno que mande el cliente. GET pasa al limiter
+    // `polling` (F22 -ver arriba, GlobalChat.astro pollea cada 15s de
+    // fallback sobre Reverb, sigue siendo tráfico frecuente aunque ya no
+    // sea el principal); POST suma un throttle propio más estricto -mismo
+    // patrón que /auth/register|login- porque es el endpoint que un
+    // cliente hostil podría usar para spamear.
+    Route::middleware('throttle:polling')->withoutMiddleware('throttle:api')->group(function () {
+        Route::get('/chat/messages', [ChatController::class, 'index']);
+    });
     Route::middleware('throttle:20,1')->group(function () {
         Route::post('/chat/messages', [ChatController::class, 'store']);
     });
 
-    // Fase 18: presencia de jugadores -HTTP + polling, sin Reverb-. Sin
-    // throttle dedicado: mismo criterio que /character, /inventory, etc.
-    // -no maneja contenido de usuario ni economía, el limiter global
-    // "api" (60/min) ya alcanza para un heartbeat de ~1 request/25s-.
-    Route::post('/presence/heartbeat', [PresenceController::class, 'heartbeat']);
-    Route::get('/presence', [PresenceController::class, 'index']);
+    // Fase 18/F22: presencia de jugadores -HTTP + polling, sin Reverb para
+    // el heartbeat en sí-. `polling` (F22) en vez del balde compartido
+    // `api`: es tráfico de fondo constante (heartbeat cada 25s + lista
+    // cada 11s en cada página vía PlayersOnline.astro), no debería competir
+    // con acciones deliberadas del jugador por el mismo presupuesto.
+    Route::middleware('throttle:polling')->withoutMiddleware('throttle:api')->group(function () {
+        Route::post('/presence/heartbeat', [PresenceController::class, 'heartbeat']);
+        Route::get('/presence', [PresenceController::class, 'index']);
+    });
 
     // Fase 19.6 HOTFIX: throttle:api (60/min, aplicado globalmente a TODA
     // routes/api.php desde bootstrap/app.php -> $middleware->throttleApi())

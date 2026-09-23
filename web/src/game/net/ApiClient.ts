@@ -246,17 +246,26 @@ export interface PetReward {
   quantity: number;
 }
 
-// F21: un checkpoint sin resolver nunca trae payload -ni pistas de qué va
-// a pasar-, solo su scheduled_at (para poder mostrar "próximo evento en
-// X min" sin revelar nada). kind=event con status=awaiting_decision es
-// estructura preparada para F22 -no ocurre todavía en la práctica-.
+// F21/F22: un checkpoint sin resolver nunca trae payload -ni pistas de qué
+// va a pasar-, solo su scheduled_at (para poder mostrar "próximo evento en
+// X min" sin revelar nada). Cuando status=awaiting_decision, `event` trae
+// lo que el jugador necesita para decidir (título/texto/opciones, leído
+// del catálogo server-side) -nunca en `payload`, que sigue siendo
+// estrictamente "el resultado ya calculado" (ver PetPresenter::checkpoint).
+export interface PetExpeditionCheckpointEvent {
+  title: string | null;
+  text: string;
+  options: string[];
+}
+
 export interface PetExpeditionCheckpoint {
   id: number;
   sequence: number;
   scheduled_at: string;
   kind: "narrative" | "event";
   status: "pending" | "awaiting_decision" | "resolved";
-  payload: { text?: string; decision?: string } | null;
+  payload: { text?: string; decision?: string; outcome?: string; damage?: number; loot?: PetReward[] } | null;
+  event: PetExpeditionCheckpointEvent | null;
 }
 
 export interface PetExpedition {
@@ -268,7 +277,15 @@ export interface PetExpedition {
   finishes_at: string;
   resolved_at: string | null;
   checkpoints: PetExpeditionCheckpoint[];
+  // F22: `loot` es el total combinado, listo para mostrar tal cual (mismo
+  // contrato que ya consumía el frontend). expedition_loot/event_loot
+  // quedan aparte para no perder la procedencia de cada recompensa -ver
+  // ExpeditionService::completeExpedition/appendEventLoot-, hoy no se
+  // muestran por separado en la UI (alcance mínimo de F22), pero ya están
+  // disponibles para cuando haga falta.
   loot: PetReward[];
+  expedition_loot: PetReward[];
+  event_loot: (PetReward & { checkpoint_id: number })[];
 }
 
 export interface Pet {
@@ -347,10 +364,14 @@ export async function claimExpedition(expeditionId: number): Promise<{ expeditio
 // F21: preparado para F22 (checkpoints kind=event con decisión real) -no
 // hay ningún checkpoint en awaiting_decision todavía en la práctica, pero
 // el endpoint ya existe con locking/idempotencia reales del lado backend.
-export async function decideCheckpoint(
-  checkpointId: number,
-  decision: string
-): Promise<{ id: number; status: string; payload: unknown }> {
+export interface DecideCheckpointResultDto {
+  id: number;
+  status: string;
+  decision: string | null;
+  payload: { outcome?: string; decision?: string; damage?: number; loot?: PetReward[] } | null;
+}
+
+export async function decideCheckpoint(checkpointId: number, decision: string): Promise<DecideCheckpointResultDto> {
   return request(`/api/v1/pet/expeditions/checkpoints/${checkpointId}/decide`, {
     method: "POST",
     body: JSON.stringify({ decision }),

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Enums\CheckpointKind;
+use App\Enums\CheckpointStatus;
 use App\Enums\PetExpeditionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\DecideCheckpointRequest;
@@ -102,10 +103,7 @@ class PetExpeditionController extends Controller
         ]);
     }
 
-    // F21: preparado con locking/idempotencia real (ver
-    // ExpeditionService::decide()), aunque F21 no genera checkpoints en
-    // awaiting_decision de forma natural todavía -eso es F22-. Devuelve
-    // 409 mientras ese sea el caso, que es siempre hoy.
+    // F22: locking/idempotencia real (ver ExpeditionService::decide()).
     public function decide(DecideCheckpointRequest $request, int $checkpoint)
     {
         $character = $request->user()->character;
@@ -115,7 +113,8 @@ class PetExpeditionController extends Controller
 
         $pet = $this->provisioning->ensureForCharacter($character);
 
-        $model = PetExpeditionCheckpoint::whereKey($checkpoint)
+        $model = PetExpeditionCheckpoint::with('eventDefinition')
+            ->whereKey($checkpoint)
             ->whereHas('expedition', fn ($query) => $query->where('pet_id', $pet->id))
             ->first();
 
@@ -135,11 +134,27 @@ class PetExpeditionController extends Controller
             return response()->json(['message' => 'Ese evento no admite una decisión.'], 409);
         }
 
-        $model = $this->expeditions->decide($model, $request->string('decision'));
+        $decision = $request->string('decision')->toString();
+
+        // Validación de forma (¿es una opción real de ESTE checkpoint?) —
+        // solo tiene sentido chequearla mientras el checkpoint sigue
+        // awaiting_decision; si una carrera ya lo resolvió, decide() más
+        // abajo responde el resultado existente sin que este chequeo
+        // interfiera (nunca bloquea la idempotencia con un 422 sobre algo
+        // que ya no importa).
+        if ($model->status === CheckpointStatus::AwaitingDecision) {
+            $options = $model->eventDefinition?->config_json['options'] ?? [];
+            if (! in_array($decision, $options, true)) {
+                return response()->json(['message' => 'Esa no es una decisión válida para este evento.'], 422);
+            }
+        }
+
+        $model = $this->expeditions->decide($model, $decision);
 
         return response()->json([
             'id' => $model->id,
             'status' => $model->status->value,
+            'decision' => $model->decision,
             'payload' => $model->payload,
         ]);
     }

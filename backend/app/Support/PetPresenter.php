@@ -34,16 +34,22 @@ class PetPresenter
         ];
     }
 
-    // F21: reemplaza `events`/`narrative_log` inline (F7/F7.1, todo
-    // precalculado en start()) por `checkpoints` -cada uno ya resuelto
-    // (con payload) o todavía no (payload null, incluso si ya está
-    // awaiting_decision: el jugador ve QUE hay que decidir, no un
-    // resultado que todavía no existe). `loot` sigue viniendo de
-    // result_data_json -ahí queda como resumen/caché desde que la
-    // expedición se completa, ver ExpeditionService::completeExpedition-.
+    // F21/F22: `checkpoints` -cada uno ya resuelto (con payload) o
+    // todavía no (payload null, incluso si ya está awaiting_decision: acá
+    // se expone por separado en `event` la info que el jugador necesita
+    // para decidir, nunca en `payload` -eso sigue siendo estrictamente "el
+    // resultado ya calculado", nunca un adelanto-). `loot` es el total
+    // combinado (expedition_loot + event_loot) para no romper el contrato
+    // que ya consume el frontend; `expedition_loot`/`event_loot` quedan
+    // expuestos aparte para no perder la procedencia (pedido explícito de
+    // F22) — ver ExpeditionService::completeExpedition/appendEventLoot.
     public static function expedition(PetExpedition $expedition): array
     {
-        $expedition->loadMissing('expeditionDefinition', 'checkpoints');
+        $expedition->loadMissing('expeditionDefinition', 'checkpoints.eventDefinition');
+
+        $data = $expedition->result_data_json ?? [];
+        $expeditionLoot = $data['expedition_loot'] ?? ($data['loot'] ?? []);
+        $eventLoot = $data['event_loot'] ?? [];
 
         return [
             'id' => $expedition->id,
@@ -54,8 +60,25 @@ class PetPresenter
             'finishes_at' => $expedition->ends_at->toIso8601String(),
             'resolved_at' => $expedition->resolved_at?->toIso8601String(),
             'checkpoints' => $expedition->checkpoints->map(self::checkpoint(...))->all(),
-            'loot' => $expedition->result_data_json['loot'] ?? [],
+            'loot' => self::mergeLoot($expeditionLoot, $eventLoot),
+            'expedition_loot' => $expeditionLoot,
+            'event_loot' => $eventLoot,
         ];
+    }
+
+    private static function mergeLoot(array $expeditionLoot, array $eventLoot): array
+    {
+        $totals = [];
+        foreach (array_merge($expeditionLoot, $eventLoot) as $entry) {
+            $key = $entry['item_key'];
+            $totals[$key] = ($totals[$key] ?? 0) + (int) $entry['quantity'];
+        }
+
+        return array_map(
+            fn ($key, $quantity) => ['item_key' => $key, 'quantity' => $quantity],
+            array_keys($totals),
+            array_values($totals)
+        );
     }
 
     private static function checkpoint(PetExpeditionCheckpoint $checkpoint): array
@@ -67,6 +90,26 @@ class PetPresenter
             'kind' => $checkpoint->kind->value,
             'status' => $checkpoint->status->value,
             'payload' => $checkpoint->status === CheckpointStatus::Resolved ? $checkpoint->payload : null,
+            'event' => self::checkpointEvent($checkpoint),
+        ];
+    }
+
+    // F22: solo se completa cuando el jugador necesita decidir -título/
+    // texto/opciones salen del catálogo (expedition_event_definitions),
+    // nunca inventados acá. Fuera de awaiting_decision queda null: no hay
+    // nada que decidir, no hay nada que mostrar de antemano.
+    private static function checkpointEvent(PetExpeditionCheckpoint $checkpoint): ?array
+    {
+        if ($checkpoint->status !== CheckpointStatus::AwaitingDecision || ! $checkpoint->eventDefinition) {
+            return null;
+        }
+
+        $event = $checkpoint->eventDefinition;
+
+        return [
+            'title' => $event->title,
+            'text' => $event->text,
+            'options' => $event->config_json['options'] ?? [],
         ];
     }
 
@@ -88,6 +131,10 @@ class PetPresenter
         ];
     }
 
+    // F22 (UX destinos): ordenado de mayor a menor probabilidad -el
+    // frontend ya no reordena, solo pinta tal cual llega-. Empate
+    // determinista por `id` de la recompensa (orden de siembra), nunca por
+    // orden de iteración incidental de la colección.
     private static function rewardPreview(ExpeditionDefinition $definition): array
     {
         $totalWeight = $definition->rewards->sum('weight');
@@ -96,11 +143,16 @@ class PetPresenter
         }
 
         return $definition->rewards
+            ->sortBy([
+                fn (ExpeditionReward $a, ExpeditionReward $b) => $b->weight <=> $a->weight,
+                fn (ExpeditionReward $a, ExpeditionReward $b) => $a->id <=> $b->id,
+            ])
             ->map(fn (ExpeditionReward $reward) => [
                 'item_name' => $reward->item->name,
                 'percent' => round($reward->weight / $totalWeight * 100, 1),
                 'rarity_tier' => $reward->rarity_tier?->value,
             ])
+            ->values()
             ->all();
     }
 }

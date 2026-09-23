@@ -58,6 +58,11 @@ class DatabaseSeeder extends Seeder
         $this->call(ExpeditionRewardSeeder::class);
         $this->call(ExpeditionEventDefinitionSeeder::class);
 
+        // F22: eventos con consecuencia mecánica (chest/enemy/help),
+        // conviven con los narrativos de arriba -ver
+        // ExpeditionMechanicalEventSeeder.
+        $this->call(ExpeditionMechanicalEventSeeder::class);
+
         // Fase 20: species/food no dependen de personajes, pero
         // PetFoodItemSeeder sí necesita que los items ya existan (arriba).
         $this->call(PetSpeciesSeeder::class);
