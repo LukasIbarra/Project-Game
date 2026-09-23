@@ -2,10 +2,12 @@
 
 namespace App\Support;
 
-use App\Enums\PetExpeditionStatus;
+use App\Enums\CheckpointStatus;
+use App\Models\ExpeditionDefinition;
+use App\Models\ExpeditionReward;
 use App\Models\Pet;
 use App\Models\PetExpedition;
-use Illuminate\Support\Carbon;
+use App\Models\PetExpeditionCheckpoint;
 
 // Fase 7: PetController y PetExpeditionController devuelven la misma
 // forma de expedición -se centraliza acá en vez de duplicar el array en
@@ -19,11 +21,6 @@ class PetPresenter
         return [
             'id' => $pet->id,
             'name' => $pet->name,
-            // Fase 20: antes era $pet->key (string suelto); ahora sale de
-            // la relación real a pet_species. 'species' se mantiene con
-            // el mismo nombre/forma que ya consumía el frontend (la
-            // key técnica); 'species_name' es nuevo, para mostrar un
-            // nombre amigable sin que el frontend tenga que resolverlo.
             'species' => $pet->species->key,
             'species_name' => $pet->species->name,
             'level' => $pet->level,
@@ -37,42 +34,73 @@ class PetPresenter
         ];
     }
 
+    // F21: reemplaza `events`/`narrative_log` inline (F7/F7.1, todo
+    // precalculado en start()) por `checkpoints` -cada uno ya resuelto
+    // (con payload) o todavía no (payload null, incluso si ya está
+    // awaiting_decision: el jugador ve QUE hay que decidir, no un
+    // resultado que todavía no existe). `loot` sigue viniendo de
+    // result_data_json -ahí queda como resumen/caché desde que la
+    // expedición se completa, ver ExpeditionService::completeExpedition-.
     public static function expedition(PetExpedition $expedition): array
     {
-        $expedition->loadMissing('destination');
+        $expedition->loadMissing('expeditionDefinition', 'checkpoints');
 
         return [
             'id' => $expedition->id,
-            'destination' => $expedition->destination->key,
-            'destination_name' => $expedition->destination->name,
+            'expedition' => $expedition->expeditionDefinition->key,
+            'expedition_name' => $expedition->expeditionDefinition->name,
             'status' => $expedition->status->value,
             'started_at' => $expedition->started_at->toIso8601String(),
             'finishes_at' => $expedition->ends_at->toIso8601String(),
             'resolved_at' => $expedition->resolved_at?->toIso8601String(),
-            'events' => $expedition->result_data_json['events'] ?? [],
+            'checkpoints' => $expedition->checkpoints->map(self::checkpoint(...))->all(),
             'loot' => $expedition->result_data_json['loot'] ?? [],
-            'narrative_log' => self::visibleNarrativeLog($expedition),
         ];
     }
 
-    // F7.1: la bitácora completa ya está decidida desde start() (ver
-    // PetExpeditionService::scheduleNarrativeLog) — "revelarla" es solo
-    // filtrar por lo que ya debería haber ocurrido según el reloj del
-    // servidor, nunca recalcular nada. Una expedición ya Completed/
-    // Claimed muestra la bitácora completa (todo "ya ocurrió").
-    private static function visibleNarrativeLog(PetExpedition $expedition): array
+    private static function checkpoint(PetExpeditionCheckpoint $checkpoint): array
     {
-        $log = $expedition->result_data_json['narrative_log'] ?? [];
+        return [
+            'id' => $checkpoint->id,
+            'sequence' => $checkpoint->sequence,
+            'scheduled_at' => $checkpoint->scheduled_at->toIso8601String(),
+            'kind' => $checkpoint->kind->value,
+            'status' => $checkpoint->status->value,
+            'payload' => $checkpoint->status === CheckpointStatus::Resolved ? $checkpoint->payload : null,
+        ];
+    }
 
-        if ($expedition->status !== PetExpeditionStatus::Active) {
-            return $log;
+    // F21: catálogo de expediciones -reward_preview ya viene con % real
+    // calculado server-side (weight / SUM(weight) * 100), nunca se expone
+    // el weight/rareza crudos de expedition_rewards tal cual.
+    public static function expeditionDefinition(ExpeditionDefinition $definition): array
+    {
+        $definition->loadMissing('rewards.item');
+
+        return [
+            'key' => $definition->key,
+            'name' => $definition->name,
+            'description' => $definition->description,
+            'difficulty' => $definition->difficulty,
+            'duration_seconds' => $definition->duration_seconds,
+            'min_pet_level' => $definition->min_pet_level,
+            'reward_preview' => self::rewardPreview($definition),
+        ];
+    }
+
+    private static function rewardPreview(ExpeditionDefinition $definition): array
+    {
+        $totalWeight = $definition->rewards->sum('weight');
+        if ($totalWeight <= 0) {
+            return [];
         }
 
-        $now = now();
-
-        return array_values(array_filter(
-            $log,
-            fn (array $entry) => Carbon::parse($entry['occurred_at'])->lte($now)
-        ));
+        return $definition->rewards
+            ->map(fn (ExpeditionReward $reward) => [
+                'item_name' => $reward->item->name,
+                'percent' => round($reward->weight / $totalWeight * 100, 1),
+                'rarity_tier' => $reward->rarity_tier?->value,
+            ])
+            ->all();
     }
 }

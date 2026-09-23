@@ -4,7 +4,7 @@ namespace App\Http\Requests;
 
 use Illuminate\Foundation\Http\FormRequest;
 
-class StartPetExpeditionRequest extends FormRequest
+class StartExpeditionRequest extends FormRequest
 {
     public function authorize(): bool
     {
@@ -14,7 +14,7 @@ class StartPetExpeditionRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'destination_key' => ['required', 'string', 'exists:pet_destinations,key'],
+            'expedition_key' => ['required', 'string', 'exists:expedition_definitions,key'],
         ];
     }
 }

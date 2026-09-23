@@ -26,7 +26,44 @@ fijadas para todo el roadmap:
   escritura bajo concurrencia (`PetExpeditionService::resolveIfDue()`,
   `CombatService::attack()`). Cualquier fase nueva con ese mismo patrón
   (Fase 16 Tienda, Fase 20 motor de expediciones temporal) hereda ese riesgo
-  y debe tratarlo como deuda activa, no como asumido-resuelto.
+  y debe tratarlo como deuda activa, no como asumido-resuelto. **Nota de
+  auditoría (revisión de esta sección):** la fuente de producción confirmada
+  hoy es un VPS propio con MariaDB, no Render/Neon — el riesgo de PgBouncer
+  queda documentado como no descartado pero no confirmado activo contra el
+  backend real actual (ver `docs/PETS_EXPEDITIONS_SYSTEM.md` §3.10/§12.2).
+- **Evolución respecto a "sin WebSockets obligatorios":** este documento
+  fijaba polling puro como decisión transversal. En la práctica, Laravel
+  Reverb se instaló y configuró (`config/reverb.php`, `broadcasting.php`) y
+  se usa hoy en Chat global y en el broadcast de `PlayerMoved` (Fase 19,
+  canal público `world`) — confirmado en código, no en un documento. La
+  decisión de "polling como base" se mantiene para todo lo que NO tenga ya
+  un canal Reverb activo (Activity Feed, Presencia/heartbeat en sí); no se
+  reescribe la decisión original para no perder el rastro de por qué se
+  tomó así, pero queda registrado que la realidad ya la superó parcialmente.
+
+---
+
+## Dónde estamos ahora
+
+El proyecto ya dejó atrás la etapa de fundamentos (auth, personaje, mundo,
+casa, inventario/equipo, mascota+expediciones AFK básicas, crafting/economía,
+combate PvP) — esas fases están completas y estables, verificadas con tests y
+uso real. Las Fases 11-17 (Player State, Activity Feed, Ranking, Toasts,
+Navegación, Tienda, Historial de Combate) también están completas. Las Fases
+18-19 (Presencia + Otros Jugadores en el Mundo) — marcadas como pendientes en
+una versión anterior de este documento — **también están completas**, según
+auditoría real de código/git de esta revisión (ver estado de fases y registro
+de cierre abajo).
+
+**Estamos en una etapa de expansión de sistemas y contenido, no de
+fundamentos.** El foco actual es rediseñar el motor de Mascotas + Expediciones
+para que deje de ser un sistema AFK secundario ("elegí, esperá, reclamá") y
+pase a resolver eventos server-side en tiempo real (checkpoints, sin
+precalcular todo al iniciar) con loot tables normalizadas y, más adelante,
+decisiones reales del jugador. Ese trabajo tiene su propio documento de
+diseño profundo, `docs/PETS_EXPEDITIONS_SYSTEM.md`, que es la fuente de
+verdad específica para ese sistema (ver nota de reconciliación de
+numeración en la sección de Fase 20 más abajo).
 
 ---
 
@@ -42,10 +79,10 @@ fijadas para todo el roadmap:
 | **15** | **Navegación real desde el Mundo** | ✅ **Completada** |
 | **16** | **Tienda** | ✅ **Completada** |
 | **17** | **Historial de Combates + Ataques Recibidos** | ✅ **Completada** |
-| 18 | Presencia (jugadores conectados) | ⬜ Pendiente |
-| 19 | Otros jugadores visibles en el Mundo | ⬜ Pendiente |
-| 20 | Motor de expediciones realmente temporal | ⬜ Pendiente |
-| 21 | Eventos interactivos de expedición con decisión | ⬜ Pendiente |
+| **18** | **Presencia (jugadores conectados)** | ✅ **Completada** (auditoría de esta revisión — ver registro de cierre) |
+| **19** | **Otros jugadores visibles en el Mundo** | ✅ **Completada** (auditoría de esta revisión — ver registro de cierre) |
+| **20** | **Base de Mascotas + Motor de expediciones realmente temporal** | 🔶 **En curso** — base (especies/alimentación) completada; motor temporal (checkpoints/loot tables) en implementación activa. Ver nota de reconciliación de numeración abajo y `docs/PETS_EXPEDITIONS_SYSTEM.md` |
+| 21 | Eventos interactivos de expedición con decisión | ⬜ Pendiente (depende de que 20 cierre) |
 | 22 | Mundo vivo: eventos ambientales básicos | ⬜ Pendiente |
 | 23 | Sonidos | ⬜ Pendiente |
 | 24 | Pulido de Demo / QA end-to-end | ⬜ Pendiente |
@@ -59,6 +96,35 @@ fijadas para todo el roadmap:
 código real ya las tenga completas (ej. Combate PvP/Arena). Ante cualquier
 contradicción entre `CLAUDE.md` y el código real, el código real es la fuente
 de verdad — este roadmap parte de esa base.
+
+## Nota de reconciliación de numeración: Fase 20 (este roadmap) vs. F20/F21/F22 (`PETS_EXPEDITIONS_SYSTEM.md`)
+
+Discrepancia real encontrada y documentada explícitamente (no corregida en
+silencio): el código de una fase de trabajo reciente sobre Mascotas
+(especies + comida + niveles — migraciones `2026_09_19_*`, seeders
+`PetSpeciesSeeder`/`PetFoodItemSeeder`) usa en sus propios comentarios la
+etiqueta **"Fase 20"**, siguiendo la numeración interna de
+`docs/PETS_EXPEDITIONS_SYSTEM.md` (que llama a ese trabajo **"F20"**). Pero
+la "Fase 20" que este mismo `ROADMAP.md` había definido originalmente más
+abajo es **"Motor de expediciones realmente temporal"** (checkpoints) — un
+sistema distinto. Esto ocurrió porque `PETS_EXPEDITIONS_SYSTEM.md` se
+escribió como un rediseño profundo específico de Mascotas/Expediciones con
+su propia subsecuencia interna (F20 especies/comida → F21 motor
+temporal+checkpoints+loot tables → F22 eventos con decisión), sin
+re-numerar contra este roadmap maestro en su momento.
+
+**Resolución (sin renombrar historia ya commiteada):**
+- La "Fase 20" de **este** roadmap maestro pasa a cubrir AMBOS pasos reales:
+  la base de especies/alimentación (`F20` de `PETS_EXPEDITIONS_SYSTEM.md`,
+  **ya completada** — ver Registro de cierre) y el motor temporal de
+  checkpoints (`F21` de `PETS_EXPEDITIONS_SYSTEM.md`, **en curso ahora**).
+- La "Fase 21" de este roadmap (eventos con decisión del jugador) equivale
+  en contenido a lo que `PETS_EXPEDITIONS_SYSTEM.md` llama **`F22`** — no
+  cambia de número acá, pero quien lea "F22" en ese documento debe
+  entenderlo como la Fase 21 de este roadmap maestro.
+- Fuente de verdad de diseño para todo este bloque: `docs/PETS_EXPEDITIONS_SYSTEM.md`
+  (prioridad explícita del dueño del proyecto). Fuente de verdad de
+  seguimiento/numeración de alto nivel: este archivo.
 
 ---
 
@@ -177,7 +243,7 @@ próximo poll).
 
 ---
 
-### FASE 18 — Presencia (jugadores conectados)
+### FASE 18 — Presencia (jugadores conectados) ✅ COMPLETADA
 
 **Objetivo:** panel "Jugadores en línea" arriba del chat.
 **DB:** `player_presence` (`id`, `character_id` FK unique cascadeOnDelete,
@@ -186,9 +252,13 @@ próximo poll).
 **Dependencias:** Fase 11.
 **Qué NO hacer todavía:** posición/dirección (Fase 19).
 
+**Implementado:** ver "Registro de cierre de fases" al final de este
+documento (auditado retroactivamente en esta revisión — el código ya estaba
+completo, este documento simplemente no reflejaba su estado real).
+
 ---
 
-### FASE 19 — Otros jugadores visibles en el Mundo
+### FASE 19 — Otros jugadores visibles en el Mundo ✅ COMPLETADA
 
 **Objetivo:** ver a otros personajes moviéndose en `/play`, sin llegar a un
 MMO en tiempo real.
@@ -200,9 +270,22 @@ posiciones, spawn points múltiples reales en Tiled.
 **Qué NO hacer todavía:** interacción entre jugadores, colisión entre
 jugadores, verlos en la Habitación.
 
+**Implementado (auditado retroactivamente en esta revisión):** ver "Registro
+de cierre de fases". Nota: esta fase terminó usando Reverb real
+(`PlayerMoved`, canal público `world`) además del polling originalmente
+previsto — evolución respecto a la decisión transversal "sin WebSockets",
+documentada al principio de este archivo, no oculta.
+
 ---
 
-### FASE 20 — Motor de expediciones realmente temporal
+### FASE 20 — Base de Mascotas + Motor de expediciones realmente temporal 🔶 EN CURSO
+
+> Ver "Nota de reconciliación de numeración" más arriba — esta fase absorbe
+> lo que `docs/PETS_EXPEDITIONS_SYSTEM.md` llama internamente `F20` (base de
+> especies/alimentación, **ya completada**) y `F21` (motor temporal de
+> checkpoints, **en curso ahora**). El diseño detallado y las decisiones de
+> arquitectura de todo este bloque viven en ese documento, no acá — esta
+> sección es solo seguimiento de alto nivel.
 
 **Objetivo:** que el resultado de cada checkpoint de una expedición se genere
 server-side EN EL MOMENTO en que corresponde — nunca al iniciar la
@@ -212,34 +295,57 @@ que precalculaba daño/loot/narrativa completos desde el minuto 0.
 checkpoints, `scheduled_at`, `kind`) de RESOLUCIÓN DEL EVENTO (texto/daño/
 loot concretos, decididos solo cuando el checkpoint vence) de APLICACIÓN DE
 CONSECUENCIAS (inmediata al resolver) y REGISTRO HISTÓRICO (bitácora).
-**DB:** `pet_expedition_checkpoints` (`id`, `pet_expedition_id` FK
-cascadeOnDelete, `scheduled_at`, `kind` [narrative|mechanical], `status`
-[pending|resolved], `resolved_at` nullable, `payload` nullable hasta
-resolverse); índices `[pet_expedition_id, scheduled_at]` y
-`[pet_expedition_id, status]`.
-**Backend:** `resolveIfDue()` (existente) se extiende para resolver TODOS los
-checkpoints vencidos en orden cronológico en una sola llamada (soporta
-catch-up offline), tirando el resultado recién ahí y aplicándolo de
-inmediato (`pet.health`, `InventoryGrantService`, posible corrimiento de
-`ends_at` si hay retraso).
-**API:** `GET /v1/pet/expedition` (existente, extendido: `remaining_seconds`,
-`log` de checkpoints resueltos).
+
+**Parte 1 — Base de Mascotas (`F20` de `PETS_EXPEDITIONS_SYSTEM.md`) — ✅
+completada, commit `d6f3eab`:** `pet_species` (catálogo, ~20 especies con
+modificadores vía JSON tipado), migración real de `pets.key` (string suelto)
+→ `pets.species_id` (FK, sin pérdida de datos), `pet_food_items` +
+alimentación con EXP/level-up, `PetModifierResolver` (sin consumidor real
+todavía — lo consume la Parte 2). Ver registro de cierre.
+
+**Parte 2 — Motor temporal (`F21` de `PETS_EXPEDITIONS_SYSTEM.md`) — 🔶 en
+implementación activa ahora:** `pet_destinations` evoluciona a
+`expedition_definitions` (conserva las keys `forest`/`mountains`/
+`blood_castle` — ver Fase B/plan de la sesión activa), tabla nueva
+`pet_expedition_checkpoints` (`kind: narrative|event`, `status:
+pending|awaiting_decision|resolved`, `payload` null hasta resolverse), tabla
+nueva `expedition_rewards` (loot table normalizada con pesos/rareza,
+reemplaza `loot_pool_json`), fix del bug de doble-claim conocido
+(`PetExpeditionService::claim()` sin lock — ver
+`docs/PETS_EXPEDITIONS_SYSTEM.md` §3.4). Checkpoints 100% narrativos en esta
+parte — los checkpoints tipo evento (cofre/enemigo/ayuda) con consecuencias
+mecánicas quedan preparados en el esquema pero sin resolver contenido real
+todavía (eso es la Fase 21 de este roadmap / `F22` del documento específico).
+
 **Riesgo:** mismo patrón lectura-decide-escribe-bajo-concurrencia que ya
-causó SQLSTATE 25P02 — recomendado resolver la deuda de `DB_URL` pooled de
-Neon antes o junto con esta fase.
+causó SQLSTATE 25P02 en el pasado contra Neon — el backend de producción
+confirmado hoy es VPS+MariaDB, no Neon, así que este riesgo específico queda
+documentado como no aplicable al entorno real actual (ver nota al principio
+de este archivo), sin descartar el patrón de locking en sí (que se
+implementa igual, es correcto independientemente del motor).
 **Dependencias:** ninguna estricta, pero comparte tabla con la Fase 21.
-**Qué NO hacer todavía:** decisiones del jugador (Fase 21).
+**Qué NO hacer todavía:** decisiones del jugador, checkpoints tipo evento
+con consecuencias mecánicas reales (Fase 21).
 
 ---
 
 ### FASE 21 — Eventos interactivos de expedición con decisión del jugador
 
-**Objetivo:** checkpoints tipo `decision` ([ENFRENTAR]/[HUIR]) resueltos por
-el jugador, con timeout+default si no está online.
-**Backend:** `pet_expedition_checkpoints` gana `kind = "decision"` +
-`decision_options` (json, incluye default) + `decision_deadline` (nullable).
-**API:** `POST /v1/pet/expedition/checkpoints/{id}/resolve`.
-**Dependencias:** Fase 20 (obligatoria), Fase 12/14.
+> Equivale a `F22` en la numeración interna de
+> `docs/PETS_EXPEDITIONS_SYSTEM.md` — ver nota de reconciliación arriba.
+
+**Objetivo:** checkpoints tipo `event` (cofre/enemigo/ayuda) con
+`[ENFRENTAR]/[HUIR]` u opciones equivalentes, resueltos por el jugador, con
+timeout+default si no está online.
+**Backend:** `expedition_event_definitions` (catálogo, tipo discriminado +
+`config_json`) gana tipos con consecuencia real más allá de `narrative`;
+`pet_expedition_checkpoints.status = awaiting_decision` pasa a usarse de
+verdad (el esquema ya lo soporta desde la Fase 20).
+**API:** `POST /v1/pet/expeditions/checkpoints/{id}/decide` (el endpoint ya
+se prepara en la Fase 20 con locking/idempotencia real, aunque sin
+checkpoints reales en ese estado todavía).
+**Dependencias:** Fase 20 (obligatoria — checkpoints/loot tables deben
+existir primero), Fase 12/14.
 **Qué NO hacer todavía:** más de una decisión por expedición, branching.
 
 ---
@@ -715,3 +821,71 @@ limpios.
 - Sin inbox/tabla de notificaciones/mensajería privada.
 - `ChatTest.php` sigue con sus 2 fallos preexistentes ya documentados
   desde Fase 13 — no relacionado con esta fase.
+
+### Fase 18 — Presencia (jugadores conectados) — ✅ Completada
+
+**Nota sobre este registro:** a diferencia de los anteriores, este cierre se
+reconstruye retroactivamente en la revisión de roadmap previa a la Fase 20/21
+— el código ya estaba implementado y en `master`, pero este documento nunca
+se actualizó cuando se cerró. Reconstruido leyendo código real, rutas, tests
+y `git log`, no inventado.
+
+**Implementado (evidencia real):**
+- Migración `player_presence` (`character_id` FK unique cascadeOnDelete,
+  `last_seen_at`, `current_map` nullable, `status`, `updated_at`), modelo
+  `PlayerPresence`.
+- `PresenceController::heartbeat()` (`POST /v1/presence/heartbeat`,
+  `updateOrCreate` por `character_id`, sin crear duplicados nunca — unique
+  constraint de DB como red de seguridad) y `PresenceController::index()`
+  (`GET /v1/presence[?map=]`, ventana "online" de 60s sobre `last_seen_at`,
+  nunca por `status` ni por evento explícito de logout/pagehide — evita el
+  problema clásico de "jugador fantasma" si el navegador se cierra sin
+  avisar).
+- `map` opcional en `GET /v1/presence` filtra server-side por
+  `current_map` (reusa `GameMap::normalize()`, sin duplicar esa lógica).
+- Forma mínima expuesta al cliente (`id`, `name`, `level`, `current_map`,
+  posición, `status`) — nunca coins/stats/appearance_json completos.
+- `ApiClient.ts`: `PresenceEntryDto`, `sendPresenceHeartbeat()`,
+  `getPresence()`.
+- Tests: `PresenceTest.php`, 59 tests (incluye esta fase y las extensiones
+  de Fase 19 que comparten el mismo endpoint/archivo).
+
+### Fase 19 — Otros jugadores visibles en el Mundo — ✅ Completada
+
+**Nota sobre este registro:** mismo caso que Fase 18 — reconstruido
+retroactivamente de código/git real, este documento nunca se actualizó al
+cerrarse. El propio código usa sub-numeración interna `Fase 19.2`/`19.3` en
+sus comentarios para los pasos de esta fase, evidencia de que se ejecutó de
+forma incremental y deliberada, no de una sola vez.
+
+**Implementado (evidencia real):**
+- Migración que extiende `player_presence` con `position_x`/`position_y`
+  (`decimal(8,2)`) y `direction`.
+- `PresenceController::position()` (`POST /v1/presence/position`): nunca
+  crea la fila (responsabilidad exclusiva del heartbeat), rechaza con 409 si
+  el personaje no está en Mundo (`current_map !== GameMap::Play`, el
+  heartbeat es el único dueño de `current_map`), valida plausibilidad de
+  movimiento contra una velocidad máxima (`SPEED_PX_PER_SECOND` replica
+  `WorldPlayer.SPEED` del frontend) con margen de tolerancia explícito
+  (50% + colchón fijo de medio tile) para absorber jitter/latencia sin abrir
+  la puerta a teletransportes.
+- Broadcast real vía Reverb: una posición que efectivamente cambió (epsilon
+  de 0.01px, evita ruido de floats) dispara `PlayerMoved` en el canal
+  público `world` — solo DESPUÉS de persistir, nunca antes; si Reverb falla,
+  la posición ya quedó guardada (mismo criterio de resiliencia que
+  `ChatController::store()`, un fallo de broadcast nunca degrada un 200 a
+  500).
+- Frontend: `RemotePlayerEntity.ts` (representación visual de jugadores
+  remotos en `WorldScene`), consumido vía el mismo `Realtime.ts`/Echo que ya
+  usa el chat.
+- `ApiClient.ts`: `sendPresencePosition()`, `PresencePositionResultDto`,
+  `PresenceEntryDto` extendido con `position_x/position_y/direction`.
+- **Hotfix real encontrado durante esta fase (registrado en el propio
+  código, no en este documento hasta ahora):** `POST /presence/position`
+  compartía el limitador `throttle:api` (60/min) ADEMÁS de su propio
+  `throttle:presence.position` (240/min) en la misma ruta — el tráfico de
+  movimiento (alta frecuencia) agotaba el balde compartido y dejaba sin
+  cupo a chat/heartbeat/otras rutas protegidas. Corregido con
+  `Route::withoutMiddleware('throttle:api')` sobre esa ruta específica, con
+  tests de regresión dedicados en `PresenceTest.php` (commit
+  `a3194c9`).

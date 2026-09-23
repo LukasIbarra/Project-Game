@@ -5,11 +5,12 @@ namespace App\Http\Controllers\Api;
 use App\Enums\PetExpeditionStatus;
 use App\Http\Controllers\Controller;
 use App\Http\Requests\FeedPetRequest;
+use App\Models\ExpeditionDefinition;
 use App\Models\Item;
-use App\Models\PetDestination;
 use App\Models\PetExpedition;
 use App\Models\PetFoodItem;
-use App\Services\PetExpeditionService;
+use App\Models\PetSpecies;
+use App\Services\ExpeditionService;
 use App\Services\PetFeedingService;
 use App\Services\PetProvisioningService;
 use App\Support\PetPresenter;
@@ -19,7 +20,7 @@ class PetController extends Controller
 {
     public function __construct(
         private readonly PetProvisioningService $provisioning,
-        private readonly PetExpeditionService $expeditions,
+        private readonly ExpeditionService $expeditions,
         private readonly PetFeedingService $feeding
     ) {
     }
@@ -32,36 +33,46 @@ class PetController extends Controller
         }
 
         $pet = $this->provisioning->ensureForCharacter($character);
-        $expedition = $this->currentExpedition($pet);
+        $expedition = $this->expeditions->currentFor($pet);
 
         return response()->json(PetPresenter::pet($pet, $expedition));
     }
 
-    public function destinations()
+    // F21: catálogo de especies -sin modifiers_json/level_modifiers_json
+    // crudo expuesto (docs/PETS_EXPEDITIONS_SYSTEM.md §13), esos son
+    // detalles de balance server-side, no algo que el frontend consuma.
+    public function species()
     {
         return response()->json(
-            PetDestination::orderBy('difficulty')->get()
+            PetSpecies::where('is_active', true)
+                ->orderBy('name')
+                ->get()
+                ->map(fn (PetSpecies $species) => [
+                    'key' => $species->key,
+                    'name' => $species->name,
+                    'description' => $species->description,
+                    'rarity' => $species->rarity->value,
+                ])
         );
     }
 
-    public function expedition(Request $request)
+    // F21: reemplaza destinations() -mismo endpoint de catálogo, ahora con
+    // reward_preview calculado server-side (ver PetPresenter).
+    public function expeditionDefinitions()
     {
-        $character = $request->user()->character;
-        if (! $character) {
-            return response()->json(['message' => 'Este usuario no tiene un personaje.'], 404);
-        }
+        $definitions = ExpeditionDefinition::where('is_active', true)
+            ->orderBy('difficulty')
+            ->with('rewards.item')
+            ->get();
 
-        $pet = $this->provisioning->ensureForCharacter($character);
-        $expedition = $this->currentExpedition($pet);
-
-        if (! $expedition) {
-            return response()->json(['message' => 'No hay ninguna expedición en curso.'], 404);
-        }
-
-        return response()->json(PetPresenter::expedition($expedition));
+        return response()->json($definitions->map(fn (ExpeditionDefinition $definition) => PetPresenter::expeditionDefinition($definition)));
     }
 
-    public function events(Request $request)
+    // F21: reemplaza events() -mismo criterio exacto (solo Claimed, una
+    // Completed-sin-reclamar ya se muestra como acción pendiente en
+    // GET /pet), solo la ruta cambia de nombre para alinearse al resto del
+    // contrato nuevo (/pet/expeditions/history).
+    public function expeditionHistory(Request $request)
     {
         $character = $request->user()->character;
         if (! $character) {
@@ -70,13 +81,9 @@ class PetController extends Controller
 
         $pet = $this->provisioning->ensureForCharacter($character);
 
-        // Solo Claimed: una expedición Completed-sin-reclamar ya se
-        // muestra como acción pendiente en GET /pet (panel "Estado") -
-        // listarla acá también sería mostrar loot como "recibido" cuando
-        // todavía no pasó al inventario.
         $history = $pet->expeditions()
             ->where('status', PetExpeditionStatus::Claimed)
-            ->with('destination')
+            ->with('expeditionDefinition', 'checkpoints')
             ->latest('id')
             ->take(20)
             ->get();
@@ -84,7 +91,7 @@ class PetController extends Controller
         return response()->json($history->map(fn (PetExpedition $expedition) => PetPresenter::expedition($expedition)));
     }
 
-    // Fase 20: catálogo de comida -mismo criterio que destinations(),
+    // Fase 20: catálogo de comida -mismo criterio que expeditionDefinitions(),
     // datos de configuración, no algo que dependa del personaje
     // autenticado. `item_name` ya resuelto acá para que el frontend no
     // tenga que cruzar contra el catálogo de items por separado.
@@ -128,25 +135,8 @@ class PetController extends Controller
         }
 
         return response()->json([
-            'pet' => PetPresenter::pet($result['pet'], $this->currentExpedition($result['pet'])),
+            'pet' => PetPresenter::pet($result['pet'], $this->expeditions->currentFor($result['pet'])),
             'leveled_up' => $result['leveled_up'],
         ]);
-    }
-
-    // "La expedición que importa ahora mismo" -activa o completada pero
-    // todavía sin reclamar-. Una vez reclamada (Claimed) deja de ser
-    // "la actual" y pasa a vivir solo en /pet/events (historial).
-    private function currentExpedition($pet): ?PetExpedition
-    {
-        $expedition = $pet->expeditions()
-            ->whereIn('status', [PetExpeditionStatus::Active, PetExpeditionStatus::Completed])
-            ->latest('id')
-            ->first();
-
-        if (! $expedition) {
-            return null;
-        }
-
-        return $this->expeditions->resolveIfDue($expedition);
     }
 }

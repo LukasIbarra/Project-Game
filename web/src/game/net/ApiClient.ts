@@ -233,49 +233,42 @@ export async function unequipSlot(slot: string): Promise<EquipmentStateDto> {
   });
 }
 
-// Fase 7: mascota / expediciones AFK. Igual que arriba, la mascota
+// Fase 7/F21: mascota / expediciones. Igual que arriba, la mascota
 // siempre se deriva del usuario autenticado -estas funciones nunca mandan
-// un pet_id ni un character_id-. Toda la duración/eventos/loot los decide
-// el backend al iniciar (ver CLAUDE.md, resolución perezosa): el cliente
-// solo pide "explorar en X" y "reclamar", nunca calcula tiempos ni loot.
-export interface PetEvent {
-  key: string;
-  label: string;
-  type: "positive" | "negative" | "delay";
-  health_delta?: number;
-  delay_minutes?: number;
-  loot_bonus_items?: number;
-  loot_bonus_quantity?: number;
-}
-
+// un pet_id ni un character_id-. F21 reemplaza el contrato completo (ver
+// docs/PETS_EXPEDITIONS_SYSTEM.md §13): el resultado ya no se precalcula
+// al iniciar -cada checkpoint se resuelve en su momento real, server-side,
+// la primera vez que algo pide el estado después de que correspondía
+// resolverse (resolución perezosa de verdad, no solo de la aplicación de
+// un resultado ya fijado).
 export interface PetReward {
   item_key: string;
   quantity: number;
 }
 
-// F7.1: puramente narrativo -sin efecto en gameplay-. Igual que el resto
-// de la expedición, ya viene "revelado" por el backend según el reloj del
-// servidor (ver PetPresenter::visibleNarrativeLog): el cliente solo
-// pinta lo que recibe, nunca decide qué evento mostrar ni cuándo.
-export interface PetNarrativeLogEntry {
-  event_id: number;
-  category: string;
-  rarity: "common" | "uncommon" | "rare" | "very_rare";
-  text: string;
-  occurred_at: string;
+// F21: un checkpoint sin resolver nunca trae payload -ni pistas de qué va
+// a pasar-, solo su scheduled_at (para poder mostrar "próximo evento en
+// X min" sin revelar nada). kind=event con status=awaiting_decision es
+// estructura preparada para F22 -no ocurre todavía en la práctica-.
+export interface PetExpeditionCheckpoint {
+  id: number;
+  sequence: number;
+  scheduled_at: string;
+  kind: "narrative" | "event";
+  status: "pending" | "awaiting_decision" | "resolved";
+  payload: { text?: string; decision?: string } | null;
 }
 
 export interface PetExpedition {
   id: number;
-  destination: string;
-  destination_name: string;
+  expedition: string;
+  expedition_name: string;
   status: "active" | "completed" | "claimed";
   started_at: string;
   finishes_at: string;
   resolved_at: string | null;
-  events: PetEvent[];
+  checkpoints: PetExpeditionCheckpoint[];
   loot: PetReward[];
-  narrative_log: PetNarrativeLogEntry[];
 }
 
 export interface Pet {
@@ -295,42 +288,77 @@ export interface Pet {
   expedition: PetExpedition | null;
 }
 
-export interface PetDestination {
-  id: number;
-  key: string;
-  name: string;
-  difficulty: number;
-  duration_minutes: number;
-  loot_min_tier: string;
-  loot_max_tier: string;
-  loot_pool_json: string[];
-}
-
 export async function getPet(): Promise<Pet> {
   return request("/api/v1/pet");
 }
 
-export async function getPetDestinations(): Promise<PetDestination[]> {
-  return request("/api/v1/pet/destinations");
+// F21: sin especie adquirible todavía (eso es F25) -este catálogo es de
+// solo lectura, informativo. Nunca expone modifiers_json/level_modifiers_json
+// crudo (son detalles de balance server-side).
+export interface PetSpeciesDto {
+  key: string;
+  name: string;
+  description: string | null;
+  rarity: "common" | "uncommon" | "rare" | "very_rare";
 }
 
-export async function getPetExpedition(): Promise<PetExpedition> {
-  return request("/api/v1/pet/expedition");
+export async function getPetSpecies(): Promise<PetSpeciesDto[]> {
+  return request("/api/v1/pet/species");
 }
 
-export async function startPetExpedition(destinationKey: string): Promise<PetExpedition> {
-  return request("/api/v1/pet/expedition/start", {
+// F21: reward_preview ya viene con % real calculado server-side
+// (weight / SUM(weight) * 100) -nunca se expone weight/rareza crudos de
+// expedition_rewards tal cual.
+export interface ExpeditionRewardPreviewDto {
+  item_name: string;
+  percent: number;
+  rarity_tier: "common" | "uncommon" | "rare" | "very_rare" | null;
+}
+
+export interface ExpeditionDefinitionDto {
+  key: string;
+  name: string;
+  description: string | null;
+  difficulty: number;
+  duration_seconds: number;
+  min_pet_level: number;
+  reward_preview: ExpeditionRewardPreviewDto[];
+}
+
+export async function getExpeditionDefinitions(): Promise<ExpeditionDefinitionDto[]> {
+  return request("/api/v1/pet/expeditions/definitions");
+}
+
+export async function getCurrentExpedition(): Promise<PetExpedition> {
+  return request("/api/v1/pet/expeditions/current");
+}
+
+export async function startExpedition(expeditionKey: string): Promise<PetExpedition> {
+  return request("/api/v1/pet/expeditions/start", {
     method: "POST",
-    body: JSON.stringify({ destination_key: destinationKey }),
+    body: JSON.stringify({ expedition_key: expeditionKey }),
   });
 }
 
-export async function claimPetExpedition(): Promise<{ expedition: PetExpedition; loot: PetReward[] }> {
-  return request("/api/v1/pet/expedition/claim", { method: "POST" });
+export async function claimExpedition(expeditionId: number): Promise<{ expedition: PetExpedition; loot: PetReward[] }> {
+  return request(`/api/v1/pet/expeditions/${expeditionId}/claim`, { method: "POST" });
 }
 
-export async function getPetEvents(): Promise<PetExpedition[]> {
-  return request("/api/v1/pet/events");
+// F21: preparado para F22 (checkpoints kind=event con decisión real) -no
+// hay ningún checkpoint en awaiting_decision todavía en la práctica, pero
+// el endpoint ya existe con locking/idempotencia reales del lado backend.
+export async function decideCheckpoint(
+  checkpointId: number,
+  decision: string
+): Promise<{ id: number; status: string; payload: unknown }> {
+  return request(`/api/v1/pet/expeditions/checkpoints/${checkpointId}/decide`, {
+    method: "POST",
+    body: JSON.stringify({ decision }),
+  });
+}
+
+export async function getExpeditionHistory(): Promise<PetExpedition[]> {
+  return request("/api/v1/pet/expeditions/history");
 }
 
 // Fase 20: alimentación -catálogo de comida + acción de alimentar. El

@@ -6,6 +6,7 @@ use App\Enums\PetExpeditionStatus;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class PetExpedition extends Model
 {
@@ -13,7 +14,7 @@ class PetExpedition extends Model
 
     protected $fillable = [
         'pet_id',
-        'destination_id',
+        'expedition_definition_id',
         'status',
         'started_at',
         'ends_at',
@@ -37,18 +38,31 @@ class PetExpedition extends Model
         return $this->belongsTo(Pet::class);
     }
 
-    public function destination(): BelongsTo
+    public function expeditionDefinition(): BelongsTo
     {
-        return $this->belongsTo(PetDestination::class, 'destination_id');
+        return $this->belongsTo(ExpeditionDefinition::class);
     }
 
-    // Fase 7: "¿terminó de verdad?" según el reloj del servidor -toda la
-    // duración final (incluyendo cualquier retraso de eventos) ya quedó
-    // fijada en `ends_at` al iniciar la expedición (ver
-    // PetExpeditionService::start), así que esto nunca necesita
-    // recalcular nada, solo comparar timestamps.
-    public function isDue(): bool
+    public function checkpoints(): HasMany
     {
-        return $this->status === PetExpeditionStatus::Active && now()->gte($this->ends_at);
+        return $this->hasMany(PetExpeditionCheckpoint::class)->orderBy('sequence');
+    }
+
+    // F21: "¿terminó de verdad?" -a diferencia del diseño anterior
+    // (F7, todo calculado en start()), ahora esto depende de DOS
+    // condiciones: el reloj YA pasó ends_at, Y no queda ningún checkpoint
+    // pending/awaiting_decision sin resolver. Ver
+    // ExpeditionService::resolveDueCheckpoints, que es quien realmente
+    // decide y persiste la transición a Completed -este método es de
+    // lectura, no muta nada.
+    public function isReadyToComplete(): bool
+    {
+        if ($this->status !== PetExpeditionStatus::Active || now()->lt($this->ends_at)) {
+            return false;
+        }
+
+        return ! $this->checkpoints()
+            ->whereIn('status', ['pending', 'awaiting_decision'])
+            ->exists();
     }
 }

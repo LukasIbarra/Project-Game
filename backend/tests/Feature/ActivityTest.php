@@ -135,19 +135,24 @@ class ActivityTest extends TestCase
     {
         [$character, $token] = $this->characterWithToken();
 
-        // Fuerza el pet+destino igual que PetExpeditionTest: consultar
+        // Fuerza el pet+destino igual que ExpeditionTest: consultar
         // GET /pet aprovisiona la mascota perezosamente.
         $this->withToken($token)->getJson('/api/v1/pet')->assertOk();
-        $destinationKey = $this->withToken($token)->getJson('/api/v1/pet/destinations')->json('0.key');
+        $expeditionKey = $this->withToken($token)->getJson('/api/v1/pet/expeditions/definitions')->json('0.key');
 
-        $this->withToken($token)->postJson('/api/v1/pet/expedition/start', [
-            'destination_key' => $destinationKey,
-        ])->assertStatus(201);
+        $start = $this->withToken($token)->postJson('/api/v1/pet/expeditions/start', [
+            'expedition_key' => $expeditionKey,
+        ]);
+        $start->assertStatus(201);
 
-        PetExpedition::where('pet_id', $character->fresh()->pet->id)
-            ->update(['ends_at' => now()->subMinute()]);
+        $expedition = PetExpedition::where('pet_id', $character->fresh()->pet->id)->firstOrFail();
+        $expedition->update(['ends_at' => now()->subMinute()]);
+        // F21: además de ends_at, hay que adelantar los checkpoints -sin
+        // esto quedan pending (su scheduled_at real sigue en el futuro) y
+        // resolveDueCheckpoints() nunca marca la expedición completed.
+        $expedition->checkpoints()->update(['scheduled_at' => now()->subMinute()]);
 
-        $this->withToken($token)->postJson('/api/v1/pet/expedition/claim')->assertOk();
+        $this->withToken($token)->postJson("/api/v1/pet/expeditions/{$expedition->id}/claim")->assertOk();
 
         $this->assertDatabaseHas('activity_events', [
             'character_id' => $character->id,

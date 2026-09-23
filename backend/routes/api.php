@@ -65,14 +65,19 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     Route::post('/equipment/equip', [EquipmentController::class, 'equip']);
     Route::delete('/equipment/{slot}', [EquipmentController::class, 'unequip']);
 
-    // Fase 7: mascota/expediciones AFK -mismo principio, la mascota
-    // siempre se deriva del usuario autenticado.
+    // Fase 7/F21: mascota/expediciones -mismo principio, la mascota
+    // siempre se deriva del usuario autenticado. Contrato reemplazado por
+    // completo en F21 (ver docs/PETS_EXPEDITIONS_SYSTEM.md §13) -sin alias
+    // de compatibilidad con las rutas viejas, frontend y backend se
+    // actualizan juntos en la misma fase.
     Route::get('/pet', [PetController::class, 'show']);
-    Route::get('/pet/destinations', [PetController::class, 'destinations']);
-    Route::get('/pet/expedition', [PetController::class, 'expedition']);
-    Route::post('/pet/expedition/start', [PetExpeditionController::class, 'start']);
-    Route::post('/pet/expedition/claim', [PetExpeditionController::class, 'claim']);
-    Route::get('/pet/events', [PetController::class, 'events']);
+    Route::get('/pet/species', [PetController::class, 'species']);
+    Route::get('/pet/expeditions/definitions', [PetController::class, 'expeditionDefinitions']);
+    Route::get('/pet/expeditions/current', [PetExpeditionController::class, 'current']);
+    Route::post('/pet/expeditions/start', [PetExpeditionController::class, 'start']);
+    Route::post('/pet/expeditions/{expedition}/claim', [PetExpeditionController::class, 'claim']);
+    Route::post('/pet/expeditions/checkpoints/{checkpoint}/decide', [PetExpeditionController::class, 'decide']);
+    Route::get('/pet/expeditions/history', [PetController::class, 'expeditionHistory']);
 
     // Fase 20: alimentación de mascotas -mismo principio de siempre, la
     // mascota siempre se deriva del usuario autenticado.

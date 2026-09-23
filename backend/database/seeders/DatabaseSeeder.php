@@ -30,6 +30,10 @@ class DatabaseSeeder extends Seeder
         $this->call(ItemSeeder::class);
         $this->call(EconomyItemSeeder::class);
 
+        // F21: items nuevos de las expediciones nuevas -antes de
+        // ExpeditionRewardSeeder, que los referencia por key.
+        $this->call(ExpeditionItemSeeder::class);
+
         // RoomFurnitureSeeder ANTES que RecipeSeeder: crea bed_frame/
         // nightstand/wooden_crate (items nuevos que solo existen acá, no
         // en EconomyItemSeeder) y RecipeSeeder ya tiene recetas para esos
@@ -44,8 +48,15 @@ class DatabaseSeeder extends Seeder
         $this->call(ShopProductSeeder::class);
 
         $this->call(ArenaEquipmentSeeder::class);
-        $this->call(PetSeeder::class);
-        $this->call(PetNarrativeEventSeeder::class);
+
+        // F21: reemplaza PetSeeder/PetNarrativeEventSeeder -catálogo de
+        // expediciones definitivo (6, ver docs/PETS_EXPEDITIONS_SYSTEM.md
+        // §9.1), loot table normalizada, eventos narrativos migrados a
+        // expedition_event_definitions. Orden: definiciones -> rewards
+        // (necesita expediciones+items) -> eventos (necesita expediciones).
+        $this->call(ExpeditionDefinitionSeeder::class);
+        $this->call(ExpeditionRewardSeeder::class);
+        $this->call(ExpeditionEventDefinitionSeeder::class);
 
         // Fase 20: species/food no dependen de personajes, pero
         // PetFoodItemSeeder sí necesita que los items ya existan (arriba).

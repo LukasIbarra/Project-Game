@@ -83,7 +83,6 @@ import GamePanel from "../components/ui/GamePanel.astro";
 					<p class="m-0 text-sm text-text">
 						🐾 ¡Tu mascota regresó de <strong id="completed-destination"></strong>!
 					</p>
-					<div id="completed-events" class="flex flex-col gap-1 text-xs text-muted"></div>
 					<div>
 						<p class="m-0 mb-1 font-mono text-[0.65rem] uppercase tracking-wide text-muted">Recompensas</p>
 						<div id="completed-loot" class="flex flex-col gap-1 text-sm text-text"></div>
@@ -121,16 +120,17 @@ import GamePanel from "../components/ui/GamePanel.astro";
 <script>
 	import {
 		ApiError,
-		claimPetExpedition,
+		claimExpedition,
 		feedPet,
+		getExpeditionDefinitions,
+		getExpeditionHistory,
 		getItemCatalog,
 		getPet,
-		getPetDestinations,
-		getPetEvents,
 		getPetFood,
-		startPetExpedition,
+		startExpedition,
 		type ItemDto,
 		type Pet,
+		type PetExpeditionCheckpoint,
 	} from "../game/net/ApiClient";
 	import { toast } from "../game/state/toast";
 
@@ -154,7 +154,6 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	const exploringCountdownEl = document.getElementById("exploring-countdown")!;
 
 	const completedDestinationEl = document.getElementById("completed-destination")!;
-	const completedEventsEl = document.getElementById("completed-events")!;
 	const completedLootEl = document.getElementById("completed-loot")!;
 	const claimButton = document.getElementById("claim-button") as HTMLButtonElement;
 
@@ -167,6 +166,9 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	const narrativeLogEl = document.getElementById("narrative-log")!;
 
 	let itemNames = new Map<string, string>();
+	// F21: id de la expedición actual -claimExpedition() ahora necesita el
+	// id explícito (antes reclamaba "la actual" sin parámetro).
+	let currentExpeditionId: number | null = null;
 	let countdownTimer: ReturnType<typeof setInterval> | null = null;
 	let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -204,23 +206,14 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		return itemNames.get(itemKey) ?? itemKey;
 	}
 
-	function formatDuration(minutes: number): string {
+	function formatDuration(seconds: number): string {
+		const minutes = seconds / 60;
 		const hours = minutes / 60;
 		return hours >= 1 && Number.isInteger(hours) ? `${hours} horas` : `${minutes} min`;
 	}
 
 	function stars(difficulty: number): string {
 		return "★".repeat(difficulty) + "☆".repeat(Math.max(0, 5 - difficulty));
-	}
-
-	function tierLabel(tier: string): string {
-		const labels: Record<string, string> = {
-			basic: "Básico",
-			rare: "Raro",
-			mythic: "Mítico",
-			legendary: "Legendario",
-		};
-		return labels[tier] ?? tier;
 	}
 
 	function formatCountdown(msRemaining: number): string {
@@ -259,7 +252,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		try {
 			const pet = await getPet();
 			renderPet(pet);
-			await Promise.all([renderDestinations(pet), renderHistory()]);
+			await Promise.all([renderExpeditions(pet), renderHistory()]);
 		} catch (err) {
 			showError(messageFrom(err, "No se pudo cargar la mascota. ¿El backend está corriendo?"));
 		} finally {
@@ -304,7 +297,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			statusExploringEl.classList.remove("hidden");
 			statusExploringEl.classList.add("flex");
 			exploringNameEl.textContent = pet.name;
-			exploringDestinationEl.textContent = expedition.destination_name;
+			exploringDestinationEl.textContent = expedition.expedition_name;
 			exploringStartedEl.textContent = new Date(expedition.started_at).toLocaleTimeString();
 			exploringFinishesEl.textContent = new Date(expedition.finishes_at).toLocaleTimeString();
 
@@ -326,11 +319,8 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		// completed, sin reclamar todavía.
 		statusCompletedEl.classList.remove("hidden");
 		statusCompletedEl.classList.add("flex");
-		completedDestinationEl.textContent = expedition.destination_name;
-
-		completedEventsEl.innerHTML = expedition.events.length
-			? expedition.events.map((event) => `<p class="m-0">• ${event.label}</p>`).join("")
-			: `<p class="m-0">Exploración tranquila, sin eventos.</p>`;
+		completedDestinationEl.textContent = expedition.expedition_name;
+		currentExpeditionId = expedition.id;
 
 		completedLootEl.innerHTML = expedition.loot
 			.map((reward) => `<span>${itemLabel(reward.item_key)} x${reward.quantity}</span>`)
@@ -346,6 +336,11 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	// entradas viejas más arriba, no se le mueve la lectura-.
 	const NARRATIVE_AUTOSCROLL_THRESHOLD_PX = 40;
 
+	// F21: reemplaza narrative_log -ahora la bitácora sale de filtrar
+	// expedition.checkpoints por los ya resueltos (payload.text). El
+	// backend sigue siendo quien decide qué ya "ocurrió" (solo aparecen acá
+	// los checkpoints con status=resolved, nunca los pending) -el cliente
+	// solo pinta lo que recibe, mismo principio que F7.1.
 	function renderNarrativeLog(expedition: NonNullable<Pet["expedition"]>): void {
 		// Visible siempre que haya una expedición activa o completada-sin-
 		// reclamar (sección 2/10 de F7.1.1) — incluso antes de que exista
@@ -361,10 +356,13 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			narrativeLogEl.innerHTML = "";
 		}
 
-		const log = expedition.narrative_log ?? [];
-		narrativeEmptyEl.classList.toggle("hidden", log.length > 0);
+		const resolved = expedition.checkpoints.filter(
+			(checkpoint): checkpoint is PetExpeditionCheckpoint & { payload: { text: string } } =>
+				checkpoint.status === "resolved" && checkpoint.kind === "narrative" && Boolean(checkpoint.payload?.text)
+		);
+		narrativeEmptyEl.classList.toggle("hidden", resolved.length > 0);
 
-		const newEntries = log.slice(renderedNarrativeCount);
+		const newEntries = resolved.slice(renderedNarrativeCount);
 		if (newEntries.length === 0) {
 			return;
 		}
@@ -373,15 +371,15 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			narrativeLogEl.scrollHeight - narrativeLogEl.scrollTop - narrativeLogEl.clientHeight <
 			NARRATIVE_AUTOSCROLL_THRESHOLD_PX;
 
-		for (const entry of newEntries) {
+		for (const checkpoint of newEntries) {
 			renderedNarrativeCount++;
 
-			const time = new Date(entry.occurred_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+			const time = new Date(checkpoint.scheduled_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 			const wrapper = document.createElement("div");
 			wrapper.className = "narrative-entry border-l-2 border-outline-strong pl-3";
 			wrapper.innerHTML = `
 				<span class="font-mono text-[0.6rem] uppercase tracking-wide text-muted">${time}</span>
-				<div class="text-sm text-text">${entry.text
+				<div class="text-sm text-text">${checkpoint.payload.text
 					.split("\n")
 					.map((line) => `<p class="m-0">${line}</p>`)
 					.join("")}</div>
@@ -396,38 +394,49 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		}
 	}
 
-	async function renderDestinations(pet: Pet): Promise<void> {
-		const destinations = await getPetDestinations();
+	// F21: reemplaza renderDestinations -mismo patrón visual, ahora con
+	// nivel mínimo (gate real de la mascota) y reward_preview (% ya
+	// calculado server-side, ver PetPresenter::rewardPreview) en vez de
+	// loot_min_tier/loot_max_tier cosméticos.
+	async function renderExpeditions(pet: Pet): Promise<void> {
+		const expeditions = await getExpeditionDefinitions();
 		const busy = pet.expedition && pet.expedition.status !== "claimed";
 
 		destinationsListEl.innerHTML = "";
-		for (const destination of destinations) {
+		for (const expedition of expeditions) {
+			const belowLevel = pet.level < expedition.min_pet_level;
+			const previewText = expedition.reward_preview.length
+				? expedition.reward_preview.map((r) => `${r.percent}% ${r.item_name}`).join(", ")
+				: "Sin recompensas configuradas";
+
 			const card = document.createElement("div");
 			card.className = "flex flex-col gap-2 border border-outline-strong p-3";
 			card.innerHTML = `
-				<span class="text-sm text-text">${destination.name}</span>
+				<span class="text-sm text-text">${expedition.name}</span>
 				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Dificultad</span>
-				<span class="text-cyan">${stars(destination.difficulty)}</span>
-				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Loot</span>
-				<span class="text-sm text-text">${tierLabel(destination.loot_min_tier)} → ${tierLabel(destination.loot_max_tier)}</span>
+				<span class="text-cyan">${stars(expedition.difficulty)}</span>
+				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Nivel mínimo</span>
+				<span class="text-sm ${belowLevel ? "text-red" : "text-text"}">${expedition.min_pet_level}</span>
 				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Tiempo</span>
-				<span class="text-sm text-text">${formatDuration(destination.duration_minutes)}</span>
+				<span class="text-sm text-text">${formatDuration(expedition.duration_seconds)}</span>
+				<span class="font-mono text-[0.65rem] uppercase tracking-wide text-muted">Recompensas posibles</span>
+				<span class="text-xs text-muted">${previewText}</span>
 			`;
 
 			const button = document.createElement("button");
 			button.type = "button";
-			button.textContent = "Explorar";
+			button.textContent = belowLevel ? `Requiere nivel ${expedition.min_pet_level}` : "Explorar";
 			button.className =
 				"border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
-			button.disabled = Boolean(busy);
+			button.disabled = Boolean(busy) || belowLevel;
 			button.addEventListener("click", async () => {
 				button.disabled = true;
 				try {
-					await startPetExpedition(destination.key);
+					await startExpedition(expedition.key);
 					await refresh();
 				} catch (err) {
 					showError(messageFrom(err, "No se pudo iniciar la expedición."));
-					button.disabled = Boolean(busy);
+					button.disabled = Boolean(busy) || belowLevel;
 				}
 			});
 			card.appendChild(button);
@@ -437,7 +446,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	}
 
 	async function renderHistory(): Promise<void> {
-		const history = await getPetEvents();
+		const history = await getExpeditionHistory();
 		historyListEl.innerHTML = "";
 		historyEmptyEl.classList.toggle("hidden", history.length > 0);
 
@@ -447,7 +456,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			const lootText = expedition.loot.map((r) => `+${r.quantity} ${itemLabel(r.item_key)}`).join(", ") || "Sin loot";
 			row.innerHTML = `
 				<div class="flex items-center justify-between">
-					<span class="text-text">${expedition.destination_name}</span>
+					<span class="text-text">${expedition.expedition_name}</span>
 					<span class="font-mono text-[0.6rem] uppercase tracking-wide text-muted">${expedition.status === "claimed" ? "Reclamada" : "Completada"}</span>
 				</div>
 				<div class="text-xs text-muted">${lootText}</div>
@@ -496,9 +505,12 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	});
 
 	claimButton.addEventListener("click", async () => {
+		if (currentExpeditionId === null) {
+			return;
+		}
 		claimButton.disabled = true;
 		try {
-			const { loot } = await claimPetExpedition();
+			const { loot } = await claimExpedition(currentExpeditionId);
 			const totalQty = loot.reduce((sum, entry) => sum + entry.quantity, 0);
 			toast.success(
 				totalQty > 0

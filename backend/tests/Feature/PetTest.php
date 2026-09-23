@@ -60,14 +60,19 @@ class PetTest extends TestCase
         $this->assertNotEquals($petAId, $petBId);
     }
 
-    public function test_destinos_vienen_del_catalogo_sembrado(): void
+    // F21: reemplaza /pet/destinations -catálogo de expediciones definitivo
+    // (6, ver docs/PETS_EXPEDITIONS_SYSTEM.md §9.1 y ExpeditionDefinitionSeeder).
+    public function test_definiciones_de_expedicion_vienen_del_catalogo_sembrado(): void
     {
         [, $token] = $this->characterWithToken();
 
-        $response = $this->withToken($token)->getJson('/api/v1/pet/destinations');
+        $response = $this->withToken($token)->getJson('/api/v1/pet/expeditions/definitions');
 
         $response->assertOk();
         $keys = array_column($response->json(), 'key');
-        $this->assertEqualsCanonicalizing(['forest', 'mountains', 'blood_castle'], $keys);
+        $this->assertEqualsCanonicalizing(
+            ['forest', 'windy_hills', 'mountains', 'ancient_ruins', 'cursed_swamp', 'blood_castle'],
+            $keys
+        );
     }
 }

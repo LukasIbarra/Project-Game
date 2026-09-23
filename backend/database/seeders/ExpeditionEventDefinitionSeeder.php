@@ -4,35 +4,47 @@ namespace Database\Seeders;
 
 use App\Enums\PetNarrativeCategory as Cat;
 use App\Enums\PetNarrativeRarity as Rar;
-use App\Models\PetDestination;
-use App\Models\PetNarrativeEvent;
+use App\Models\ExpeditionDefinition;
+use App\Models\ExpeditionEventDefinition;
 use Illuminate\Database\Seeder;
 
-// F7.1: catálogo de contenido narrativo -sin efecto mecánico (ver
-// migración). `destination_key` null = universal (cualquier destino).
-// Distribución objetivo por destino: ~20 common / ~6 uncommon / ~3 rare /
-// ~1 very_rare de 30; universal ~12/4/1/1 de 18. Total ~108.
+// F21: reemplaza PetNarrativeEventSeeder -mismo contenido exacto (108
+// eventos, texto sin tocar), ahora sembrado directamente en
+// expedition_event_definitions (type=narrative, category preservada
+// dentro de config_json ya que esa tabla no tiene columna propia para
+// ella, ver migración 2026_09_22_000003). `updateOrCreate` por `text`
+// (misma clave de unicidad que el seeder anterior) lo hace seguro de
+// correr tanto contra una DB fresca (donde la migración de datos
+// 2026_09_22_000004 no tuvo nada que copiar todavía) como contra una DB
+// existente (donde esa migración ya copió estas 108 filas desde
+// pet_narrative_events antes de que se dropeara esa tabla) -en ese
+// segundo caso, esto solo actualiza las filas ya migradas en su lugar,
+// nunca las duplica.
 //
-// Tono: absurdo, seco, ocasionalmente oscuro, nunca explícito. Ver
-// CLAUDE.md / instrucciones de F7.1 para el criterio completo -no repetir
-// acá, solo el contenido resultante-.
-class PetNarrativeEventSeeder extends Seeder
+// `destination_key` null = evento universal (cualquier expedición).
+// Distribución objetivo por expedición: ~20 common / ~6 uncommon / ~3
+// rare / ~1 very_rare de 30; universal ~12/4/1/1 de 18. Total ~108.
+//
+// Tono: absurdo, seco, ocasionalmente oscuro, nunca explícito.
+class ExpeditionEventDefinitionSeeder extends Seeder
 {
     public function run(): void
     {
-        $destinations = PetDestination::pluck('id', 'key');
+        $definitions = ExpeditionDefinition::pluck('id', 'key');
 
         foreach ($this->events() as $entry) {
             [$destinationKey, $category, $rarity, $text] = $entry;
 
-            PetNarrativeEvent::updateOrCreate(
+            ExpeditionEventDefinition::updateOrCreate(
                 ['text' => $text],
                 [
-                    'destination_id' => $destinationKey ? ($destinations[$destinationKey] ?? null) : null,
-                    'category' => $category,
+                    'expedition_definition_id' => $destinationKey ? ($definitions[$destinationKey] ?? null) : null,
+                    'type' => 'narrative',
                     'rarity' => $rarity,
                     'weight' => 1,
                     'is_active' => true,
+                    'title' => null,
+                    'config_json' => ['category' => $category->value],
                 ]
             );
         }
