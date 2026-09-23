@@ -52,9 +52,16 @@ class ExpeditionCheckpointTest extends TestCase
         return [$character, $token];
     }
 
+    // F23: GET /pet ya no auto-crea nada -adopta un starter fijo (la
+    // especie en sí no importa para estos tests, ninguno depende de cuál).
+    // forgetGuards(): evita que la próxima request del propio test vea el
+    // Character desactualizado de antes de adoptar -artefacto del entorno
+    // de test (el mismo objeto User se reutiliza entre requests dentro de
+    // un test), nunca ocurre en producción-.
     private function petFor(string $token): Pet
     {
-        $petId = $this->withToken($token)->getJson('/api/v1/pet')->json('id');
+        $petId = $this->withToken($token)->postJson('/api/v1/pet/adopt', ['species_key' => 'kitsu'])->json('id');
+        $this->app['auth']->forgetGuards();
 
         return Pet::findOrFail($petId);
     }

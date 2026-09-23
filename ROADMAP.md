@@ -60,7 +60,9 @@ fundamentos.** El motor de Mascotas + Expediciones ya dejó de ser un sistema
 AFK secundario ("elegí, esperá, reclamá"): resuelve eventos server-side en
 su momento real (checkpoints, sin precalcular todo al iniciar), con loot
 tables normalizadas y decisiones reales del jugador (checkpoints
-interactivos tipo cofre/enemigo/ayuda, Fase 21). Ese trabajo tiene su
+interactivos tipo cofre/enemigo/ayuda, Fase 21), y ya no depende de una
+mascota única auto-creada: el jugador adopta y colecciona mascotas
+explícitamente, con una activa a la vez (Fase 22). Ese trabajo tiene su
 propio documento de diseño profundo, `docs/PETS_EXPEDITIONS_SYSTEM.md`, que
 sigue siendo la fuente de verdad específica para ese sistema (ver su propia
 sección de estado de implementación, y la nota de reconciliación de
@@ -98,7 +100,7 @@ código real ya las tenga completas (ej. Combate PvP/Arena). Ante cualquier
 contradicción entre `CLAUDE.md` y el código real, el código real es la fuente
 de verdad — este roadmap parte de esa base.
 
-## Nota de reconciliación de numeración: Fase 20 (este roadmap) vs. F20/F21/F22 (`PETS_EXPEDITIONS_SYSTEM.md`)
+## Nota de reconciliación de numeración: Fase 20 (este roadmap) vs. F20/F21/F22/F23 (`PETS_EXPEDITIONS_SYSTEM.md`)
 
 Discrepancia real encontrada y documentada explícitamente (no corregida en
 silencio): el código de una fase de trabajo reciente sobre Mascotas
@@ -123,6 +125,11 @@ re-numerar contra este roadmap maestro en su momento.
   en contenido a lo que `PETS_EXPEDITIONS_SYSTEM.md` llama **`F22`** — no
   cambia de número acá, pero quien lea "F22" en ese documento debe
   entenderlo como la Fase 21 de este roadmap maestro.
+- La "Fase 22" de este roadmap (Adopción, Colección y Mascota Activa)
+  equivale a lo que `PETS_EXPEDITIONS_SYSTEM.md` llama **`F23`** —
+  agregada a continuación de la Fase 21 (no reemplaza ninguna fase ya
+  planeada; Mundo vivo/Sonidos/Pulido de Demo y todo el bloque de
+  Producción corrieron su número original +1, ver sus secciones más abajo).
 - Fuente de verdad de diseño para todo este bloque: `docs/PETS_EXPEDITIONS_SYSTEM.md`
   (prioridad explícita del dueño del proyecto). Fuente de verdad de
   seguimiento/numeración de alto nivel: este archivo.
@@ -429,7 +436,131 @@ selector.
 
 ---
 
-### FASE 22 — Mundo vivo: eventos ambientales básicos
+### FASE 22 — Adopción, Colección y Mascota Activa ✅ COMPLETADA
+
+> Equivale a `F23` en la numeración interna de
+> `docs/PETS_EXPEDITIONS_SYSTEM.md` — ver nota de reconciliación arriba.
+
+**Objetivo:** evolucionar de "1 mascota automática por usuario" (la especie
+legacy `starter`/"Compañero", auto-creada en el registro) a una colección
+real: el usuario elige explícitamente su primera mascota (gratis) entre 5
+especies nuevas con sprites reales, puede adoptar especies adicionales
+pagando monedas (sin duplicados por especie), y tiene una única mascota
+ACTIVA en un momento dado -la que usan `/pet`, expediciones y alimentación-.
+
+**Implementado:**
+- **Retiro estructural de la especie legacy**: `pet_species.key = 'starter'`
+  (nunca `name = 'Compañero'`) es el identificador -migración
+  `2026_09_23_000004_retire_legacy_starter_pets.php` marca esa fila
+  `is_active=false, is_starter_option=false` y pone `retired_at=now()` en
+  las 102 `pets` existentes de esa especie, sin borrar ninguna fila
+  (preserva las 5 `pet_expeditions` históricas -`pet_id` con
+  `cascadeOnDelete()`, por eso nunca se usó DELETE-).
+- **Modelo `User → Pets → mascota activa`**: `characters.active_pet_id` (FK
+  nullable a `pets.id`, `nullOnDelete()`) es la única fuente de verdad de
+  "cuál está activa" -se prefirió sobre un flag `pets.is_active` porque una
+  columna solo puede tener un valor por construcción, sin gimnasia de
+  constraints-. `pets.character_id` pasa de UNIQUE simple a UNIQUE
+  compuesto `(character_id, species_id)` -máximo 1 pet por especie por
+  usuario-, `pets.retired_at` nullable (soft-retire).
+- **Registro ya NO auto-crea mascota**: `AuthController::register()` perdió
+  la llamada a `PetProvisioningService` -la elección es explícita en la
+  primera visita a `/pet`-.
+- **`PetAdoptionService`** (nuevo, mismo patrón que `EconomyService::buy()`
+  pero con `Character::lockForUpdate()` agregado -mejora deliberada,
+  `EconomyService::buy()` no lockea, riesgo ya documentado en el cierre de
+  Fase 16-): `adoptStarter()` (gratis, rechaza si ya hay mascota activa o
+  no-retirada -usa el scope `notRetired()` para que usuarios legacy con
+  solo la mascota retirada SÍ puedan adoptar-), `purchase()` (precio
+  SIEMPRE server-side desde `pet_species.adoption_price`, nunca del
+  cliente; rechaza especie duplicada/fondos insuficientes; nunca cambia la
+  mascota activa), `setActive()` (valida propiedad y que no esté retirada).
+  Las 3 en transacción con lock.
+- **5 especies nuevas** (`PetSpeciesAdoptionSeeder`): Lumio, Rakhun, Qappha,
+  Kitsu, Sapphoro -`rarity=uncommon` uniforme (cosmético hoy, reservado
+  para balance de gacha futuro), un modificador conservador cada una
+  reusando `PetModifierType`/`PetModifierResolver` tal cual (sin sistema de
+  stats nuevo), `adoption_price=150` monedas (provisorio, respaldado en
+  auditoría real de economía: combate 15/3 monedas, item más caro de
+  Tienda 60, materiales raros 40-150 -primera mascota siempre 0-).
+- **Sprites reales**: `sprite_meta_json` por especie (`file`, grid
+  `frame_width/height`=443, `columns=4`, `rows=2`, `idle_frames`,
+  `expression_frames` documentados pero sin consumidor todavía) -verificado
+  con los PNG reales (`sharp`) antes de asumir ningún tamaño; los 5
+  archivos son 1774×887px, grid 4×2 limpio sin padding-.
+- **API** (`/api/v1/pet/...`): `GET /species` (catálogo con
+  `owned`/`is_starter_option`/`adoption_price`/`sprite`, nunca expone
+  `modifiers_json` crudo), `GET /mine` (colección + `active_pet_id`),
+  `POST /adopt` (starter gratis), `POST /species/{key}/purchase`,
+  `POST /active` (cambia la activa). `GET /pet`, `/pet/feed`,
+  `/pet/expeditions/*` ahora devuelven 404 explícito si el personaje no
+  tiene mascota activa -mismo patrón `if (!$x) 404` que el resto del
+  código- en vez de auto-provisionar.
+- **Expediciones nunca se reasignan**: una expedición queda ligada a la Pet
+  concreta que la inició (`pet_expeditions.pet_id`, columna histórica)
+  -cambiar cuál mascota está activa nunca la toca, la expedición sigue
+  resolviéndose y reclamándose normalmente aunque el jugador cambie de
+  mascota activa mientras tanto-.
+- **Frontend `/pet`** (Astro/HTML, sin Phaser -sigue siendo el módulo
+  correcto según la tabla de Fase 4-): 3 estados excluyentes -sin mascota
+  (selección de starter), normal (UI existente de F7/F20/F21/F22, ahora con
+  retrato animado) y colección (mascotas propias + especies disponibles
+  para comprar)-. Animación idle mínima real: recorte del spritesheet vía
+  `background-position`/`background-size` escalado a 96px, alternando
+  entre `idle_frames` cada 900ms, `image-rendering: pixelated` siempre -sin
+  blur, sin Phaser, mismo estilo Chibikko, sin librerías nuevas-.
+- **Bug de entorno de test descubierto y documentado**: el cliente HTTP de
+  test de Laravel (`$this->withToken()->postJson()/getJson()`) reutiliza
+  el mismo objeto `User`/`Character` cacheado entre llamadas sucesivas
+  dentro de un mismo método de test -nunca ocurre en producción, cada
+  request ahí es un proceso nuevo-. Fix: `$this->app['auth']->forgetGuards();`
+  después de cualquier llamada que mute el Character y antes de la
+  siguiente que necesite leerlo fresco -aplicado y documentado inline en
+  los tests afectados-.
+
+**Tests:** `PetAdoptionTest.php` (19, nuevo) -catálogo starters, adopción
+gratis, doble adopción rechazada, especie inválida/no-starter, ya-tiene-
+mascota rechazado, múltiples especies sin duplicados, compra descuenta
+monedas exactamente una vez, fondos insuficientes, precio nunca del
+cliente, cambio de activa, ownership, `/pet/mine`, expedición conserva
+`pet_id` original al cambiar de activa, alimentación afecta solo a la
+activa, sprite expuesto correctamente, usuario legacy puede adoptar,
+historial intacto tras retiro-. `PetTest.php`/`PetSpeciesTest.php`/
+`PetFeedingTest.php`/`ExpeditionTest.php`/`ExpeditionCheckpointTest.php`/
+`ExpeditionEventTest.php`/`ActivityTest.php` actualizados al nuevo flujo
+(adoptar antes de operar, ya no auto-mascota).
+
+**Verificado:** `php artisan test` → 264 passed, 2 failed (`ChatTest`,
+mismos 2 flakes documentados desde Fase 13 -datos reales acumulados en
+`chat_messages`, no relacionados-). `tsc --noEmit` y `astro build`
+limpios. **Verificado además contra un backend real corriendo** (no solo
+por lectura de código): registro → 404 en `GET /pet` → catálogo de
+starters con sprite real → adopción gratis → doble-adopción rechazada
+(409) → `GET /pet`/`GET /pet/mine` reflejando la mascota activa → compra
+de una segunda especie con descuento real de monedas (500→350) → cambio de
+activa confirmado. Sin herramienta de navegador real disponible en esta
+sesión -la UI se validó por ese flujo HTTP end-to-end + type-check + build,
+no por interacción visual-.
+
+**Riesgo/deuda documentada:** precios de adopción (150 monedas planas) son
+provisorios, pendientes de balance real (Fase 36). Rareza de las 5
+especies nuevas (`uncommon`) es cosmética, sin efecto mecánico -reservado
+para un futuro sistema de gacha/huevos, explícitamente fuera de alcance de
+esta fase-. Expresiones del spritesheet (`happy`/`fed`/`expedition`/
+`hurt`/`interact`) están documentadas en `sprite_meta_json.expression_frames`
+pero sin consumidor -implementación real queda para cuando se aborde el
+pulido de Demo/UX de Mascota-.
+**Dependencias:** Fase 20 (especies/`PetModifierResolver`), Fase 21 (motor
+de expediciones -la Pet activa sigue siendo la que inicia/resuelve
+expediciones-).
+**Qué NO se implementó (a propósito):** huevos/gacha, duplicados por
+especie, breeding, evolución, rareza individual aleatoria, skins,
+marketplace/trading entre jugadores, imágenes de destino definitivas,
+balance final de precios, rediseño artístico completo de `/pet`.
+
+---
+
+### FASE 23 — Mundo vivo: eventos ambientales básicos
 
 **Objetivo:** apariciones ocasionales y significativas en el Mundo (ej.
 "lluvia de meteoritos"), no "click cada 30s".
@@ -442,7 +573,7 @@ comerciante ambulante con inventario propio.
 
 ---
 
-### FASE 23 — Sonidos
+### FASE 24 — Sonidos
 
 **Objetivo:** capa mínima de efectos de sonido (chat, evento interactivo de
 mascota, evento de mundo, combate, level up, compra, crafting, recompensa
@@ -453,13 +584,13 @@ dispara sonido en cada poll, solo ante eventos nuevos reales. UI (chat,
 toast, compra, crafting) vía `<audio>` simple; mundo/combate vía
 `this.sound` de Phaser. Toggle 🔊/🔇 en HUD, preferencia en `localStorage`.
 **Dependencias:** Fase 14; en la práctica se implementa último porque
-necesita que 16/17/21/22 ya disparen el evento `notify`.
+necesita que 16/17/21/23 ya disparen el evento `notify`.
 **Qué NO hacer todavía:** música ambiente, mezclador de volumen por
 categoría.
 
 ---
 
-### FASE 24 — Pulido de Demo / QA end-to-end
+### FASE 25 — Pulido de Demo / QA end-to-end
 
 **Objetivo:** cerrar el Demo como unidad coherente. Sin features nuevas: pase
 de estados vacíos, responsive, `tsc --noEmit` + `php artisan test` limpios,
@@ -469,26 +600,26 @@ Playwright end-to-end del recorrido completo.
 
 ## ROADMAP PRODUCCIÓN
 
-- **Fase 25** — Auditoría de seguridad y abuso (throttle en heartbeat/shop/
+- **Fase 26** — Auditoría de seguridad y abuso (throttle en heartbeat/shop/
   expedition-resolve; revisar doble-resolución de checkpoints por polls
   concurrentes).
-- **Fase 26** — Interacciones sociales en el Mundo (inspeccionar/desafiar).
-- **Fase 27** — Amigos y Social completo (tabla `friendships`).
-- **Fase 28** — Logros y títulos (`achievements` + `character_achievements`,
+- **Fase 27** — Interacciones sociales en el Mundo (inspeccionar/desafiar).
+- **Fase 28** — Amigos y Social completo (tabla `friendships`).
+- **Fase 29** — Logros y títulos (`achievements` + `character_achievements`,
   reactivos sobre `activity_events`).
-- **Fase 29** — Tienda con stock verdaderamente global (condicionado a
+- **Fase 30** — Tienda con stock verdaderamente global (condicionado a
   resolver antes la deuda de `DB_URL` pooled de Neon o locking explícito).
-- **Fase 30** — Expediciones avanzadas: branching y checkpoints encadenados.
-- **Fase 31** — Contenido: más mascotas, destinos, mapas.
-- **Fase 32** — Crafting avanzado / progresión de profesión.
-- **Fase 33** — Habitación avanzada: visitas de otros jugadores (solo vista).
-- **Fase 34** — Recompensas moderadas por tiempo online (sin pay-to-win, sin
+- **Fase 31** — Expediciones avanzadas: branching y checkpoints encadenados.
+- **Fase 32** — Contenido: más mascotas, destinos, mapas.
+- **Fase 33** — Crafting avanzado / progresión de profesión.
+- **Fase 34** — Habitación avanzada: visitas de otros jugadores (solo vista).
+- **Fase 35** — Recompensas moderadas por tiempo online (sin pay-to-win, sin
   obligar a dejar el navegador abierto).
-- **Fase 35** — Balance de economía (incluye precios/stock de Tienda).
-- **Fase 36** — Rendimiento, observabilidad, deploy robusto.
-- **Fase 37** — Formalización completa de Tiled (spawn points, zonas,
+- **Fase 36** — Balance de economía (incluye precios/stock de Tienda).
+- **Fase 37** — Rendimiento, observabilidad, deploy robusto.
+- **Fase 38** — Formalización completa de Tiled (spawn points, zonas,
   object layers 100% declarados, cero matching por nombre en código).
-- **Fase 38** — Audio ambiente y música (opcional, baja prioridad).
+- **Fase 39** — Audio ambiente y música (opcional, baja prioridad).
 
 ---
 
@@ -497,25 +628,26 @@ Playwright end-to-end del recorrido completo.
 ```
 Player State (11)
       │
-      ├──→ Activity (12) ──→ Notifications (14) ──→ Audio (23)
+      ├──→ Activity (12) ──→ Notifications (14) ──→ Audio (24)
       │        │                    │
       │        │                    ├──→ Shop notif (16)
       │        │                    ├──→ Combat notif (17)
       │        │                    ├──→ Expedition notif (21)
-      │        │                    └──→ World event notif (22)
-      │        └── nuevos `type`s agregados por 16/17/21/22
+      │        │                    └──→ World event notif (23)
+      │        └── nuevos `type`s agregados por 16/17/21/23
       └──→ Ranking (13)   [independiente]
 
-Presence (18) ──→ Other Players (19) ──→ World Events (22) ──→ Social (26)
+Presence (18) ──→ Other Players (19) ──→ World Events (23) ──→ Social (27)
 
 Pet Expeditions (existente)
-      └──→ Real-time Event Resolution (20) ──→ Expedition Log (20)
-                 └──→ Interactive Decisions (21) ──→ Advanced Expedition System (30)
+      ├──→ Real-time Event Resolution (20) ──→ Expedition Log (20)
+      │          └──→ Interactive Decisions (21) ──→ Advanced Expedition System (31)
+      └──→ Adoption / Collection / Active Pet (22)
 
-Economy (existente) ──→ Shop (16) ──→ Crafting (existente) ──→ Economy Balance (35)
-                            └──→ Shop stock global (29) [requiere deuda Neon resuelta]
+Economy (existente) ──→ Shop (16) ──→ Crafting (existente) ──→ Economy Balance (36)
+                            └──→ Shop stock global (30) [requiere deuda Neon resuelta]
 
-Combat (existente/Fase 10) ──→ Combat History (17) ──→ Attack Notifications (17) ──→ Social Combat (26)
+Combat (existente/Fase 10) ──→ Combat History (17) ──→ Attack Notifications (17) ──→ Social Combat (27)
 ```
 
 ---
@@ -524,14 +656,14 @@ Combat (existente/Fase 10) ──→ Combat History (17) ──→ Attack Notifi
 
 **Demo:** ver checklist completo acordado (estado dinámico, actividad,
 ranking, historial Arena, ataques recibidos, presencia, otros jugadores,
-expediciones temporales, eventos de expedición, bitácora, tienda, crafting,
-mundo vivo, sonidos principales, notificaciones, QA) — se transcribe en
-detalle al cerrar la Fase 24.
+expediciones temporales, eventos de expedición, bitácora, adopción y
+colección de mascotas, tienda, crafting, mundo vivo, sonidos principales,
+notificaciones, QA) — se transcribe en detalle al cerrar la Fase 25.
 
 **Producción:** ver checklist acordado (auditoría, interacciones sociales,
 amigos, logros, stock global, expediciones avanzadas, contenido, visitas,
 recompensas online, balance, observabilidad, Tiled formal, CI) — se
-transcribe en detalle al cerrar la Fase 38.
+transcribe en detalle al cerrar la Fase 39.
 
 ---
 

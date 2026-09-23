@@ -31,6 +31,7 @@ class Character extends Model
         'agility',
         'vitality',
         'coins',
+        'active_pet_id',
         'appearance_json',
     ];
 
@@ -56,9 +57,22 @@ class Character extends Model
         return $this->hasMany(CharacterEquipment::class);
     }
 
-    public function pet(): HasOne
+    // F23: un personaje puede poseer varias mascotas (colección) -ver
+    // migración 2026_09_23_000002_allow_multiple_pets_per_character.
+    // Reemplaza al antiguo pet(): HasOne.
+    public function pets(): HasMany
     {
-        return $this->hasOne(Pet::class);
+        return $this->hasMany(Pet::class);
+    }
+
+    // F23: cuál de todas sus Pets es la activa -fuente única de verdad
+    // vía characters.active_pet_id (columna, no una fila marcada:
+    // garantiza por construcción que solo puede haber una). null =
+    // sin mascota activa (usuario nuevo, o legacy retirado -ver
+    // PetAdoptionService/migración 2026_09_23_000004).
+    public function activePet(): BelongsTo
+    {
+        return $this->belongsTo(Pet::class, 'active_pet_id');
     }
 
     public function room(): HasOne

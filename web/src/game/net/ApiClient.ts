@@ -288,6 +288,22 @@ export interface PetExpedition {
   event_loot: (PetReward & { checkpoint_id: number })[];
 }
 
+// F23: metadata del spritesheet real de cada especie (grid uniforme de
+// frames cuadrados, sin padding entre celdas -ver PetSpeciesAdoptionSeeder).
+// `idle_frames` es lo único que consume la animación mínima de esta fase;
+// `expression_frames` queda documentado/disponible para cuando se
+// implementen las expresiones (happy/fed/expedition/hurt/interact), no se
+// usa todavía.
+export interface PetSpriteMetaDto {
+  file: string;
+  frame_width: number;
+  frame_height: number;
+  columns: number;
+  rows: number;
+  idle_frames: number[];
+  expression_frames: Record<string, number[]>;
+}
+
 export interface Pet {
   id: number;
   name: string;
@@ -303,24 +319,90 @@ export interface Pet {
   max_energy: number;
   status: "idle" | "exploring" | "injured";
   expedition: PetExpedition | null;
+  // F23: null solo puede pasar en teoría (especies legacy sin metadata
+  // sembrada) -el frontend debe tolerarlo y caer a un render sin animar.
+  sprite: PetSpriteMetaDto | null;
 }
 
-export async function getPet(): Promise<Pet> {
-  return request("/api/v1/pet");
+// F23: GET /pet ahora devuelve 404 cuando el personaje todavía no tiene
+// mascota activa (ya no se auto-crea en el registro) -este helper expone
+// esa distinción sin que cada caller tenga que andar mirando err.status.
+export async function getPet(): Promise<Pet | null> {
+  try {
+    return await request<Pet>("/api/v1/pet");
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) {
+      return null;
+    }
+    throw err;
+  }
 }
 
-// F21: sin especie adquirible todavía (eso es F25) -este catálogo es de
-// solo lectura, informativo. Nunca expone modifiers_json/level_modifiers_json
-// crudo (son detalles de balance server-side).
+// F23: catálogo de especies ahora incluye si son elegibles como starter,
+// su precio de adopción y si el usuario autenticado ya la posee -sigue sin
+// exponer modifiers_json/level_modifiers_json crudo (detalles de balance
+// server-side, ver PetPresenter::species).
 export interface PetSpeciesDto {
   key: string;
   name: string;
   description: string | null;
   rarity: "common" | "uncommon" | "rare" | "very_rare";
+  sprite: PetSpriteMetaDto | null;
+  is_starter_option: boolean;
+  adoption_price: number;
+  owned: boolean;
 }
 
 export async function getPetSpecies(): Promise<PetSpeciesDto[]> {
   return request("/api/v1/pet/species");
+}
+
+// F23: resumen liviano de una mascota poseída -usado por la colección
+// (GET /pet/mine), no trae expedición/status de combate, solo lo necesario
+// para listar y distinguir cuál está activa.
+export interface PetSummaryDto {
+  id: number;
+  name: string;
+  species: string;
+  species_name: string;
+  level: number;
+  status: "idle" | "exploring" | "injured";
+  sprite: PetSpriteMetaDto | null;
+}
+
+export interface MyPetsDto {
+  active_pet_id: number | null;
+  pets: PetSummaryDto[];
+}
+
+export async function getMyPets(): Promise<MyPetsDto> {
+  return request("/api/v1/pet/mine");
+}
+
+// F23: primer starter, siempre gratis -el servidor rechaza (409) si el
+// personaje ya tiene una mascota activa o no retirada.
+export async function adoptPet(speciesKey: string): Promise<Pet> {
+  return request("/api/v1/pet/adopt", {
+    method: "POST",
+    body: JSON.stringify({ species_key: speciesKey }),
+  });
+}
+
+// F23: compra de una especie adicional -el precio SIEMPRE sale del
+// servidor (pet_species.adoption_price), este cliente nunca lo manda.
+export async function purchasePetSpecies(speciesKey: string): Promise<PetSummaryDto> {
+  return request(`/api/v1/pet/species/${encodeURIComponent(speciesKey)}/purchase`, {
+    method: "POST",
+  });
+}
+
+// F23: cambia cuál mascota poseída está activa -nunca reasigna expediciones
+// históricas, ver PetAdoptionService::setActive.
+export async function setActivePet(petId: number): Promise<void> {
+  await request("/api/v1/pet/active", {
+    method: "POST",
+    body: JSON.stringify({ pet_id: petId }),
+  });
 }
 
 // F21: reward_preview ya viene con % real calculado server-side

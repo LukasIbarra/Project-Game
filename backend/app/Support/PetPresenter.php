@@ -8,6 +8,7 @@ use App\Models\ExpeditionReward;
 use App\Models\Pet;
 use App\Models\PetExpedition;
 use App\Models\PetExpeditionCheckpoint;
+use App\Models\PetSpecies;
 
 // Fase 7: PetController y PetExpeditionController devuelven la misma
 // forma de expedición -se centraliza acá en vez de duplicar el array en
@@ -30,7 +31,44 @@ class PetPresenter
             'energy' => $pet->energy,
             'max_energy' => $pet->max_energy,
             'status' => $pet->status->value,
+            'sprite' => $pet->species->sprite_meta_json,
             'expedition' => $expedition ? self::expedition($expedition) : null,
+        ];
+    }
+
+    // F23: catálogo de especies para el flujo de adopción/colección.
+    // `owned` se calcula server-side (nunca confiado del cliente) -ver
+    // PetController::species()-. Sigue sin exponer modifiers_json/
+    // level_modifiers_json crudo.
+    public static function species(PetSpecies $species, bool $owned): array
+    {
+        return [
+            'key' => $species->key,
+            'name' => $species->name,
+            'description' => $species->description,
+            'rarity' => $species->rarity->value,
+            'sprite' => $species->sprite_meta_json,
+            'is_starter_option' => $species->is_starter_option,
+            'adoption_price' => $species->adoption_price,
+            'owned' => $owned,
+        ];
+    }
+
+    // F23: fila resumida para "mis mascotas" (colección) -no trae
+    // expedición/checkpoints, eso solo importa para la mascota ACTIVA
+    // (ver pet()).
+    public static function petSummary(Pet $pet): array
+    {
+        $pet->loadMissing('species');
+
+        return [
+            'id' => $pet->id,
+            'name' => $pet->name,
+            'species' => $pet->species->key,
+            'species_name' => $pet->species->name,
+            'level' => $pet->level,
+            'status' => $pet->status->value,
+            'sprite' => $pet->species->sprite_meta_json,
         ];
     }
 

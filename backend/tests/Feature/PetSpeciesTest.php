@@ -27,23 +27,28 @@ class PetSpeciesTest extends TestCase
 
     // --- Migración / integridad referencial ---
 
-    public function test_la_especie_starter_existe_y_esta_activa(): void
+    // F23: la especie legacy sigue EXISTIENDO (integridad referencial con
+    // las Pets/expediciones históricas de usuarios legacy) pero queda
+    // retirada -ya no se ofrece ni como starter ni en el catálogo activo-.
+    // Ver migración 2026_09_23_000004_retire_legacy_starter_pets.
+    public function test_la_especie_starter_legacy_existe_pero_esta_retirada(): void
     {
         $starter = PetSpecies::where('key', 'starter')->first();
 
-        $this->assertNotNull($starter, 'La migración de backfill debe haber creado la especie starter.');
-        $this->assertTrue($starter->is_active);
+        $this->assertNotNull($starter, 'La fila legacy debe seguir existiendo -integridad referencial con Pets históricas-.');
+        $this->assertFalse($starter->is_active);
+        $this->assertFalse($starter->is_starter_option);
     }
 
-    public function test_una_mascota_nueva_queda_asociada_a_la_especie_starter(): void
+    public function test_una_mascota_adoptada_queda_asociada_a_la_especie_elegida(): void
     {
         [, $token] = $this->characterWithToken();
 
-        $petId = $this->withToken($token)->getJson('/api/v1/pet')->json('id');
+        $petId = $this->withToken($token)->postJson('/api/v1/pet/adopt', ['species_key' => 'kitsu'])->json('id');
         $pet = Pet::findOrFail($petId);
 
         $this->assertNotNull($pet->species_id);
-        $this->assertSame('starter', $pet->species->key);
+        $this->assertSame('kitsu', $pet->species->key);
     }
 
     public function test_relacion_pet_species_funciona_en_ambos_sentidos(): void
@@ -70,12 +75,14 @@ class PetSpeciesTest extends TestCase
     public function test_get_pet_expone_species_y_species_name(): void
     {
         [, $token] = $this->characterWithToken();
+        $this->withToken($token)->postJson('/api/v1/pet/adopt', ['species_key' => 'kitsu'])->assertStatus(201);
+        $this->app['auth']->forgetGuards();
 
         $response = $this->withToken($token)->getJson('/api/v1/pet');
 
         $response->assertOk();
-        $response->assertJsonPath('species', 'starter');
-        $response->assertJsonPath('species_name', 'Compañero');
+        $response->assertJsonPath('species', 'kitsu');
+        $response->assertJsonPath('species_name', 'Kitsu');
     }
 
     public function test_seed_deja_aproximadamente_20_especies_activas(): void

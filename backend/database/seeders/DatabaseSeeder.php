@@ -67,5 +67,11 @@ class DatabaseSeeder extends Seeder
         // PetFoodItemSeeder sí necesita que los items ya existan (arriba).
         $this->call(PetSpeciesSeeder::class);
         $this->call(PetFoodItemSeeder::class);
+
+        // F23: las 5 especies definitivas de adopción -ver
+        // PetSpeciesAdoptionSeeder. Después de PetSpeciesSeeder (no
+        // depende de él, solo se agrupa junto al resto del catálogo de
+        // mascotas).
+        $this->call(PetSpeciesAdoptionSeeder::class);
     }
 }

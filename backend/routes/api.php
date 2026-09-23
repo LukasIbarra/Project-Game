@@ -78,6 +78,15 @@ Route::prefix('v1')->middleware('auth:sanctum')->group(function () {
     // actualizan juntos en la misma fase. GET /pet vive arriba, en el
     // grupo throttle:polling (F22).
     Route::get('/pet/species', [PetController::class, 'species']);
+
+    // F23: adopción/colección -la mascota SIEMPRE se deriva del usuario
+    // autenticado, especie/precio SIEMPRE del catálogo server-side (nunca
+    // lo que mande el cliente). Ver docs/PETS_EXPEDITIONS_SYSTEM.md.
+    Route::get('/pet/mine', [PetController::class, 'mine']);
+    Route::post('/pet/adopt', [PetController::class, 'adopt']);
+    Route::post('/pet/species/{key}/purchase', [PetController::class, 'purchase']);
+    Route::post('/pet/active', [PetController::class, 'setActive']);
+
     Route::get('/pet/expeditions/definitions', [PetController::class, 'expeditionDefinitions']);
     Route::get('/pet/expeditions/current', [PetExpeditionController::class, 'current']);
     Route::post('/pet/expeditions/start', [PetExpeditionController::class, 'start']);

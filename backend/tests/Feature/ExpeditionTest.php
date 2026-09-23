@@ -49,9 +49,16 @@ class ExpeditionTest extends TestCase
         return [$character, $token];
     }
 
+    // F23: GET /pet ya no auto-crea nada -adopta un starter fijo (la
+    // especie en sí no importa para estos tests, ninguno depende de cuál).
+    // forgetGuards(): evita que la próxima request del propio test vea el
+    // Character desactualizado de antes de adoptar -artefacto del entorno
+    // de test (el mismo objeto User se reutiliza entre requests dentro de
+    // un test), nunca ocurre en producción-.
     private function petFor(string $token): Pet
     {
-        $petId = $this->withToken($token)->getJson('/api/v1/pet')->json('id');
+        $petId = $this->withToken($token)->postJson('/api/v1/pet/adopt', ['species_key' => 'kitsu'])->json('id');
+        $this->app['auth']->forgetGuards();
 
         return Pet::findOrFail($petId);
     }
@@ -276,9 +283,12 @@ class ExpeditionTest extends TestCase
 
         $response->assertOk();
         $this->assertNotEmpty($response->json());
-        $starter = collect($response->json())->firstWhere('key', 'starter');
-        $this->assertNotNull($starter);
-        $this->assertArrayNotHasKey('modifiers_json', $starter);
-        $this->assertArrayHasKey('rarity', $starter);
+        // F23: 'starter' quedó retirada (is_active=false) y ya no aparece en
+        // el catálogo activo -se usa 'kitsu' (una de las 5 especies nuevas)
+        // como representante de cualquier especie activa.
+        $kitsu = collect($response->json())->firstWhere('key', 'kitsu');
+        $this->assertNotNull($kitsu);
+        $this->assertArrayNotHasKey('modifiers_json', $kitsu);
+        $this->assertArrayHasKey('rarity', $kitsu);
     }
 }

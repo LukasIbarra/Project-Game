@@ -4,7 +4,6 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Services\PetProvisioningService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\Rules\Password;
@@ -12,10 +11,6 @@ use Illuminate\Validation\ValidationException;
 
 class AuthController extends Controller
 {
-    public function __construct(private readonly PetProvisioningService $petProvisioning)
-    {
-    }
-
     public function register(Request $request)
     {
         // Fase 10.5.1, sección 11: la app entera está en español, pero los
@@ -53,10 +48,13 @@ class AuthController extends Controller
             'name' => $data['name'],
         ]);
 
-        // Fase 7: todo Character nuevo recibe una mascota, mismo
-        // principio que el Character recién creado arriba.
-        $this->petProvisioning->ensureForCharacter($character);
-
+        // F23: el registro YA NO crea una mascota automática ("Compañero"
+        // quedó retirado, ver docs/PETS_EXPEDITIONS_SYSTEM.md y
+        // migración 2026_09_23_000004). El usuario elige su primera
+        // mascota explícitamente la primera vez que entra a /pet
+        // (POST /v1/pet/adopt, gratis) — mismo principio de resolución
+        // perezosa que el resto del proyecto, solo que acá la "resolución"
+        // es una decisión real del jugador, no un cálculo automático.
         $token = $user->createToken('web')->plainTextToken;
 
         return response()->json([

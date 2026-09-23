@@ -14,14 +14,54 @@ import GamePanel from "../components/ui/GamePanel.astro";
 	<div class="mx-auto flex w-full max-w-4xl flex-col gap-4 py-4">
 		<p id="pet-error" class="hidden border border-red px-3 py-2 text-sm text-red"></p>
 
+		<!-- F23: solo visible cuando el personaje ya tiene una mascota activa
+		     -alterna la vista normal por la colección (mascotas propias +
+		     especies disponibles para adoptar). -->
+		<div id="pet-toolbar" class="hidden justify-end">
+			<button
+				id="toggle-collection"
+				type="button"
+				class="border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg"
+			>
+				Mis mascotas
+			</button>
+		</div>
+
+		<!-- F23: estado 1/3 -sin mascota todavía (usuario nuevo o legacy
+		     "Compañero" retirado). Elegir una especie starter es gratis. -->
+		<div id="no-pet-view" class="hidden flex-col gap-4">
+			<GamePanel title="Elegí tu primera mascota" bodyClass="flex flex-col gap-3 p-5">
+				<p class="m-0 text-sm text-muted">Todavía no tenés una mascota. Elegí una para empezar -es gratis-.</p>
+				<div id="starter-options" class="grid grid-cols-2 gap-3 sm:grid-cols-3"></div>
+			</GamePanel>
+		</div>
+
+		<!-- F23: estado 3/3 -colección: mascotas propias (identificando cuál
+		     está activa, con opción de cambiarla) + especies todavía no
+		     adquiridas, comprables por monedas. -->
+		<div id="collection-view" class="hidden flex-col gap-4">
+			<GamePanel title="Mis mascotas" bodyClass="flex flex-col gap-3 p-5">
+				<div id="owned-pets-list" class="grid grid-cols-2 gap-3 sm:grid-cols-3"></div>
+			</GamePanel>
+			<GamePanel title="Adoptar más especies" bodyClass="flex flex-col gap-3 p-5">
+				<div id="available-species-list" class="grid grid-cols-2 gap-3 sm:grid-cols-3"></div>
+			</GamePanel>
+			<button
+				id="close-collection"
+				type="button"
+				class="w-fit border-2 border-cyan px-4 py-2 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg"
+			>
+				Volver
+			</button>
+		</div>
+
+		<!-- F23: estado 2/3 -UI normal existente (F7/F20/F21/F22), ahora
+		     dentro de un contenedor que se puede ocultar mientras se navega
+		     el resto de estados. -->
+		<div id="active-pet-view" class="hidden flex-col gap-4">
 		<div class="grid gap-4 sm:grid-cols-[220px_1fr]">
 			<GamePanel title="Mi mascota" bodyClass="flex flex-col items-center gap-3 p-5 text-center">
-				<img
-					src="/assets/pets/catsparin.png"
-					alt="Mascota"
-					class="h-24 w-24 object-contain"
-					style="image-rendering: pixelated;"
-				/>
+				<div id="pet-portrait" class="pet-sprite" aria-hidden="true"></div>
 				<div>
 					<p id="pet-name" class="m-0 text-sm text-text">Cargando…</p>
 					<p id="pet-species" class="m-0 font-mono text-[0.65rem] text-cyan"></p>
@@ -148,27 +188,95 @@ import GamePanel from "../components/ui/GamePanel.astro";
 			<div id="history-list" class="flex flex-col gap-2"></div>
 			<p id="history-empty" class="hidden text-sm text-muted">Todavía no completaste ninguna expedición.</p>
 		</GamePanel>
+		</div>
 	</div>
 </AppShell>
 
 <script>
 	import {
 		ApiError,
+		adoptPet,
 		claimExpedition,
 		decideCheckpoint,
 		feedPet,
 		getExpeditionDefinitions,
 		getExpeditionHistory,
 		getItemCatalog,
+		getMyPets,
 		getPet,
 		getPetFood,
+		getPetSpecies,
+		purchasePetSpecies,
+		setActivePet,
 		startExpedition,
 		type ExpeditionDefinitionDto,
 		type ItemDto,
 		type Pet,
 		type PetExpeditionCheckpoint,
+		type PetSpriteMetaDto,
 	} from "../game/net/ApiClient";
 	import { toast } from "../game/state/toast";
+
+	const petToolbarEl = document.getElementById("pet-toolbar")!;
+	const noPetViewEl = document.getElementById("no-pet-view")!;
+	const collectionViewEl = document.getElementById("collection-view")!;
+	const activePetViewEl = document.getElementById("active-pet-view")!;
+	const starterOptionsEl = document.getElementById("starter-options")!;
+	const ownedPetsListEl = document.getElementById("owned-pets-list")!;
+	const availableSpeciesListEl = document.getElementById("available-species-list")!;
+	const toggleCollectionButton = document.getElementById("toggle-collection") as HTMLButtonElement;
+	const closeCollectionButton = document.getElementById("close-collection") as HTMLButtonElement;
+	const petPortraitEl = document.getElementById("pet-portrait")!;
+
+	// F23: tamaño de render fijo (coincide con el h-24 w-24 = 96px que tenía
+	// el <img> estático anterior) -el spritesheet real es de 443x443 por
+	// frame, se escala acá vía background-size, nunca se re-exporta a otro
+	// tamaño (los PNG originales quedan intactos).
+	const SPRITE_DISPLAY_SIZE = 96;
+	const IDLE_FRAME_INTERVAL_MS = 900;
+
+	function applySpriteFrame(el: HTMLElement, sprite: PetSpriteMetaDto | null, frameIndex: number): void {
+		if (!sprite) {
+			el.style.backgroundImage = "url('/assets/pets/catsparin.png')";
+			el.style.backgroundSize = "contain";
+			el.style.backgroundPosition = "center";
+			return;
+		}
+		const scale = SPRITE_DISPLAY_SIZE / sprite.frame_width;
+		const bgWidth = sprite.columns * sprite.frame_width * scale;
+		const bgHeight = sprite.rows * sprite.frame_height * scale;
+		const col = frameIndex % sprite.columns;
+		const row = Math.floor(frameIndex / sprite.columns);
+		el.style.backgroundImage = `url(${sprite.file})`;
+		el.style.backgroundSize = `${bgWidth}px ${bgHeight}px`;
+		el.style.backgroundPosition = `-${col * sprite.frame_width * scale}px -${row * sprite.frame_height * scale}px`;
+	}
+
+	// F23: animación idle mínima -alterna entre los idle_frames del sheet
+	// (típicamente [0,1], un parpadeo/respiración) cada IDLE_FRAME_INTERVAL_MS.
+	// Solo se usa en el retrato principal (portrait); las tarjetas de
+	// selección/colección muestran el primer idle_frame estático, no
+	// necesitan animar todas a la vez.
+	let portraitIdleTimer: ReturnType<typeof setInterval> | null = null;
+
+	function startPortraitIdleAnimation(sprite: PetSpriteMetaDto | null): void {
+		if (portraitIdleTimer) {
+			clearInterval(portraitIdleTimer);
+			portraitIdleTimer = null;
+		}
+		if (!sprite || sprite.idle_frames.length === 0) {
+			applySpriteFrame(petPortraitEl, sprite, 0);
+			return;
+		}
+		let i = 0;
+		applySpriteFrame(petPortraitEl, sprite, sprite.idle_frames[0]);
+		if (sprite.idle_frames.length > 1) {
+			portraitIdleTimer = setInterval(() => {
+				i = (i + 1) % sprite.idle_frames.length;
+				applySpriteFrame(petPortraitEl, sprite, sprite.idle_frames[i]);
+			}, IDLE_FRAME_INTERVAL_MS);
+		}
+	}
 
 	const errorEl = document.getElementById("pet-error")!;
 	const nameEl = document.getElementById("pet-name")!;
@@ -277,6 +385,212 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		return DECISION_LABELS[option] ?? option.charAt(0).toUpperCase() + option.slice(1);
 	}
 
+	// F23: las 3 vistas de /pet son mutuamente excluyentes -no-mascota,
+	// normal (activa) y colección-. show*View() solo mueve clases hidden/
+	// flex, refresh() sigue siendo la única fuente de qué vista corresponde
+	// según si GET /pet devuelve 404 o no. La colección es la única
+	// alcanzable solo por click explícito (toggle-collection), nunca la
+	// fuerza un refresh automático mientras el jugador la tiene abierta.
+	function showNoPetView(): void {
+		noPetViewEl.classList.remove("hidden");
+		noPetViewEl.classList.add("flex");
+		activePetViewEl.classList.add("hidden");
+		activePetViewEl.classList.remove("flex");
+		collectionViewEl.classList.add("hidden");
+		collectionViewEl.classList.remove("flex");
+		petToolbarEl.classList.add("hidden");
+		petToolbarEl.classList.remove("flex");
+		if (portraitIdleTimer) {
+			clearInterval(portraitIdleTimer);
+			portraitIdleTimer = null;
+		}
+		renderStarterOptions().catch((err) => {
+			showError(messageFrom(err, "No se pudieron cargar las especies disponibles."));
+		});
+	}
+
+	function showActivePetView(): void {
+		noPetViewEl.classList.add("hidden");
+		noPetViewEl.classList.remove("flex");
+		petToolbarEl.classList.remove("hidden");
+		petToolbarEl.classList.add("flex");
+		// No forzar el cierre de la colección si el jugador la tiene abierta
+		// -un refresh periódico (poll) no debe interrumpirla-.
+		if (collectionViewEl.classList.contains("hidden")) {
+			activePetViewEl.classList.remove("hidden");
+			activePetViewEl.classList.add("flex");
+		}
+	}
+
+	function spriteCard(sprite: PetSpriteMetaDto | null): HTMLDivElement {
+		const box = document.createElement("div");
+		box.className = "pet-sprite mx-auto";
+		applySpriteFrame(box, sprite, sprite?.idle_frames?.[0] ?? 0);
+		return box;
+	}
+
+	// F23: catálogo de starters -especies con is_starter_option=true. La
+	// primera adopción siempre es gratis, validada server-side (F23 #adopt).
+	async function renderStarterOptions(): Promise<void> {
+		const species = await getPetSpecies();
+		const starters = species.filter((s) => s.is_starter_option);
+
+		starterOptionsEl.innerHTML = "";
+		for (const s of starters) {
+			const card = document.createElement("div");
+			card.className = "flex flex-col items-center gap-2 border border-outline-strong p-3 text-center";
+			card.appendChild(spriteCard(s.sprite));
+
+			const name = document.createElement("p");
+			name.className = "m-0 text-sm text-text";
+			name.textContent = s.name;
+			card.appendChild(name);
+
+			if (s.description) {
+				const desc = document.createElement("p");
+				desc.className = "m-0 text-xs text-muted";
+				desc.textContent = s.description;
+				card.appendChild(desc);
+			}
+
+			const button = document.createElement("button");
+			button.type = "button";
+			button.textContent = "Elegir (gratis)";
+			button.className =
+				"w-full border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+			button.addEventListener("click", async () => {
+				for (const btn of starterOptionsEl.querySelectorAll("button")) {
+					(btn as HTMLButtonElement).disabled = true;
+				}
+				try {
+					await adoptPet(s.key);
+					toast.success(`¡${s.name} ahora es tu mascota!`);
+					await refresh();
+				} catch (err) {
+					toast.error(messageFrom(err, "No se pudo adoptar la mascota."));
+					for (const btn of starterOptionsEl.querySelectorAll("button")) {
+						(btn as HTMLButtonElement).disabled = false;
+					}
+				}
+			});
+			card.appendChild(button);
+
+			starterOptionsEl.appendChild(card);
+		}
+	}
+
+	// F23: colección -mascotas propias (con cuál está activa) + especies
+	// todavía no adquiridas, comprables por monedas (precio siempre server-
+	// side, ver PetSpeciesDto.adoption_price -nunca se manda al backend-).
+	async function renderCollection(): Promise<void> {
+		const [mine, species] = await Promise.all([getMyPets(), getPetSpecies()]);
+
+		ownedPetsListEl.innerHTML = "";
+		for (const p of mine.pets) {
+			const isActive = p.id === mine.active_pet_id;
+			const card = document.createElement("div");
+			card.className = `flex flex-col items-center gap-2 border p-3 text-center ${isActive ? "border-cyan" : "border-outline-strong"}`;
+			card.appendChild(spriteCard(p.sprite));
+
+			const name = document.createElement("p");
+			name.className = "m-0 text-sm text-text";
+			name.textContent = `${p.name} · Nv. ${p.level}`;
+			card.appendChild(name);
+
+			const speciesLabel = document.createElement("p");
+			speciesLabel.className = "m-0 font-mono text-[0.6rem] uppercase tracking-wide text-muted";
+			speciesLabel.textContent = p.species_name;
+			card.appendChild(speciesLabel);
+
+			if (isActive) {
+				const badge = document.createElement("span");
+				badge.className = "font-mono text-[0.6rem] uppercase tracking-wide text-cyan";
+				badge.textContent = "Activa";
+				card.appendChild(badge);
+			} else {
+				const button = document.createElement("button");
+				button.type = "button";
+				button.textContent = "Activar";
+				button.className =
+					"w-full border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+				button.addEventListener("click", async () => {
+					button.disabled = true;
+					try {
+						await setActivePet(p.id);
+						toast.success(`${p.name} ahora es tu mascota activa.`);
+						await renderCollection();
+					} catch (err) {
+						toast.error(messageFrom(err, "No se pudo activar esa mascota."));
+						button.disabled = false;
+					}
+				});
+				card.appendChild(button);
+			}
+
+			ownedPetsListEl.appendChild(card);
+		}
+
+		availableSpeciesListEl.innerHTML = "";
+		const purchasable = species.filter((s) => !s.owned);
+		for (const s of purchasable) {
+			const card = document.createElement("div");
+			card.className = "flex flex-col items-center gap-2 border border-outline-strong p-3 text-center";
+			card.appendChild(spriteCard(s.sprite));
+
+			const name = document.createElement("p");
+			name.className = "m-0 text-sm text-text";
+			name.textContent = s.name;
+			card.appendChild(name);
+
+			const price = document.createElement("p");
+			price.className = "m-0 font-mono text-[0.65rem] text-cyan";
+			price.textContent = `${s.adoption_price} monedas`;
+			card.appendChild(price);
+
+			const button = document.createElement("button");
+			button.type = "button";
+			button.textContent = "Adoptar";
+			button.className =
+				"w-full border-2 border-cyan px-3 py-1 font-mono text-xs text-cyan transition-colors hover:bg-cyan hover:text-bg disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-cyan";
+			button.addEventListener("click", async () => {
+				button.disabled = true;
+				try {
+					await purchasePetSpecies(s.key);
+					toast.success(`¡Adoptaste a ${s.name}!`);
+					await renderCollection();
+				} catch (err) {
+					toast.error(messageFrom(err, "No se pudo adoptar esa especie."));
+					button.disabled = false;
+				}
+			});
+			card.appendChild(button);
+
+			availableSpeciesListEl.appendChild(card);
+		}
+	}
+
+	toggleCollectionButton.addEventListener("click", async () => {
+		activePetViewEl.classList.add("hidden");
+		activePetViewEl.classList.remove("flex");
+		collectionViewEl.classList.remove("hidden");
+		collectionViewEl.classList.add("flex");
+		try {
+			await renderCollection();
+		} catch (err) {
+			toast.error(messageFrom(err, "No se pudo cargar la colección."));
+		}
+	});
+
+	closeCollectionButton.addEventListener("click", async () => {
+		collectionViewEl.classList.add("hidden");
+		collectionViewEl.classList.remove("flex");
+		activePetViewEl.classList.remove("hidden");
+		activePetViewEl.classList.add("flex");
+		// Puede haberse cambiado la mascota activa dentro de la colección
+		// -refrescar el estado normal para reflejarlo (retrato/status/etc.)-.
+		await refresh();
+	});
+
 	function formatCountdown(msRemaining: number): string {
 		const totalSeconds = Math.max(0, Math.floor(msRemaining / 1000));
 		const h = String(Math.floor(totalSeconds / 3600)).padStart(2, "0");
@@ -312,6 +626,11 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		stopCountdown();
 		try {
 			const pet = await getPet();
+			if (!pet) {
+				showNoPetView();
+				return;
+			}
+			showActivePetView();
 			renderPet(pet);
 			await Promise.all([renderExpeditions(pet), renderHistory()]);
 		} catch (err) {
@@ -329,6 +648,7 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		nameEl.textContent = pet.name;
 		speciesEl.textContent = pet.species_name;
 		levelEl.textContent = `Nv. ${pet.level} · ${pet.experience} EXP`;
+		startPortraitIdleAnimation(pet.sprite);
 
 		healthBarEl.style.width = `${(pet.health / pet.max_health) * 100}%`;
 		healthLabelEl.textContent = `${pet.health} / ${pet.max_health}`;
@@ -768,5 +1088,15 @@ import GamePanel from "../components/ui/GamePanel.astro";
 		.narrative-entry {
 			animation: none;
 		}
+	}
+
+	/* F23: retrato/tarjetas de mascota -spritesheet real recortado vía
+	   background-position (ver applySpriteFrame en el script). Pixelado
+	   siempre, sin blur/interpolación -estilo Chibikko-. */
+	.pet-sprite {
+		width: 96px;
+		height: 96px;
+		background-repeat: no-repeat;
+		image-rendering: pixelated;
 	}
 </style>

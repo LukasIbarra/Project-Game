@@ -30,7 +30,10 @@ class PetExpeditionController extends Controller
             return response()->json(['message' => 'Este usuario no tiene un personaje.'], 404);
         }
 
-        $pet = $this->provisioning->ensureForCharacter($character);
+        $pet = $this->provisioning->activePetFor($character);
+        if (! $pet) {
+            return response()->json(['message' => 'Este personaje todavía no tiene una mascota activa.'], 404);
+        }
 
         $existing = $this->expeditions->currentFor($pet);
         if ($existing) {
@@ -61,7 +64,11 @@ class PetExpeditionController extends Controller
             return response()->json(['message' => 'Este usuario no tiene un personaje.'], 404);
         }
 
-        $pet = $this->provisioning->ensureForCharacter($character);
+        $pet = $this->provisioning->activePetFor($character);
+        if (! $pet) {
+            return response()->json(['message' => 'Este personaje todavía no tiene una mascota activa.'], 404);
+        }
+
         $expedition = $this->expeditions->currentFor($pet);
 
         if (! $expedition) {
@@ -78,7 +85,10 @@ class PetExpeditionController extends Controller
             return response()->json(['message' => 'Este usuario no tiene un personaje.'], 404);
         }
 
-        $pet = $this->provisioning->ensureForCharacter($character);
+        $pet = $this->provisioning->activePetFor($character);
+        if (! $pet) {
+            return response()->json(['message' => 'Este personaje todavía no tiene una mascota activa.'], 404);
+        }
 
         // whereKey+where('pet_id', ...) en vez de findOrFail suelto -nunca
         // resuelve una expedición de otra mascota, sea cual sea el id que
@@ -111,7 +121,10 @@ class PetExpeditionController extends Controller
             return response()->json(['message' => 'Este usuario no tiene un personaje.'], 404);
         }
 
-        $pet = $this->provisioning->ensureForCharacter($character);
+        $pet = $this->provisioning->activePetFor($character);
+        if (! $pet) {
+            return response()->json(['message' => 'Este personaje todavía no tiene una mascota activa.'], 404);
+        }
 
         $model = PetExpeditionCheckpoint::with('eventDefinition')
             ->whereKey($checkpoint)

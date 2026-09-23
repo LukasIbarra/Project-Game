@@ -26,9 +26,18 @@ class PetFeedingTest extends TestCase
         return [$character, $token];
     }
 
+    // F23: GET /pet ya no auto-crea nada -adopta un starter fijo (la
+    // especie en sí no importa para estos tests, ninguno depende de cuál).
+    // forgetGuards(): el entorno de test reutiliza el mismo objeto User
+    // (con su relación character() ya cacheada) entre llamadas HTTP
+    // sucesivas dentro de un mismo test -sin esto, la request de la propia
+    // prueba que llama a este helper vería el Character desactualizado de
+    // ANTES de adoptar, aunque la DB ya esté correcta. Nunca ocurre en
+    // producción -ahí cada request es un proceso nuevo-.
     private function petFor(string $token): Pet
     {
-        $petId = $this->withToken($token)->getJson('/api/v1/pet')->json('id');
+        $petId = $this->withToken($token)->postJson('/api/v1/pet/adopt', ['species_key' => 'kitsu'])->json('id');
+        $this->app['auth']->forgetGuards();
 
         return Pet::findOrFail($petId);
     }

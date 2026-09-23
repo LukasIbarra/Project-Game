@@ -135,9 +135,11 @@ class ActivityTest extends TestCase
     {
         [$character, $token] = $this->characterWithToken();
 
-        // Fuerza el pet+destino igual que ExpeditionTest: consultar
-        // GET /pet aprovisiona la mascota perezosamente.
-        $this->withToken($token)->getJson('/api/v1/pet')->assertOk();
+        // F23: GET /pet ya no auto-crea nada -adopta un starter primero.
+        $this->withToken($token)->postJson('/api/v1/pet/adopt', ['species_key' => 'kitsu'])->assertStatus(201);
+        // forgetGuards(): ver PetFeedingTest::petFor() -artefacto del cliente
+        // HTTP de test que cachea el Character resuelto entre llamadas.
+        $this->app['auth']->forgetGuards();
         $expeditionKey = $this->withToken($token)->getJson('/api/v1/pet/expeditions/definitions')->json('0.key');
 
         $start = $this->withToken($token)->postJson('/api/v1/pet/expeditions/start', [
@@ -145,7 +147,7 @@ class ActivityTest extends TestCase
         ]);
         $start->assertStatus(201);
 
-        $expedition = PetExpedition::where('pet_id', $character->fresh()->pet->id)->firstOrFail();
+        $expedition = PetExpedition::where('pet_id', $character->fresh()->activePet->id)->firstOrFail();
         $expedition->update(['ends_at' => now()->subMinute()]);
         // F21: además de ends_at, hay que adelantar los checkpoints -sin
         // esto quedan pending (su scheduled_at real sigue en el futuro) y

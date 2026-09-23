@@ -7,6 +7,10 @@ use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Tests\TestCase;
 
+// F23: GET /pet ya NO auto-crea ninguna mascota -el registro tampoco. Un
+// personaje sin mascota activa debe pasar por selección inicial
+// (POST /pet/adopt, ver PetAdoptionTest.php para el flujo completo de
+// adopción/compra/colección).
 class PetTest extends TestCase
 {
     use DatabaseTransactions;
@@ -20,44 +24,33 @@ class PetTest extends TestCase
         return [$character, $token];
     }
 
-    public function test_personaje_sin_mascota_recibe_una_al_consultar_get_pet(): void
+    public function test_personaje_nuevo_no_recibe_mascota_automatica(): void
     {
         [$character, $token] = $this->characterWithToken();
-        $this->assertNull($character->fresh()->pet);
+        $this->assertNull($character->fresh()->activePet);
 
         $response = $this->withToken($token)->getJson('/api/v1/pet');
 
-        $response->assertOk();
-        $response->assertJsonPath('name', 'Compañero');
-        $response->assertJsonPath('species', 'starter');
-        $response->assertJsonPath('status', 'idle');
-        $response->assertJsonPath('health', 100);
-        $this->assertNotNull($character->fresh()->pet);
-    }
-
-    public function test_consultar_get_pet_dos_veces_no_duplica_la_mascota(): void
-    {
-        [$character, $token] = $this->characterWithToken();
-
-        $first = $this->withToken($token)->getJson('/api/v1/pet')->json('id');
-        $second = $this->withToken($token)->getJson('/api/v1/pet')->json('id');
-
-        $this->assertEquals($first, $second);
-        $this->assertEquals(1, \App\Models\Pet::where('character_id', $character->id)->count());
+        $response->assertStatus(404);
+        $this->assertNull($character->fresh()->activePet);
+        $this->assertSame(0, $character->fresh()->pets()->count());
     }
 
     public function test_usuario_solo_puede_consultar_su_propia_mascota(): void
     {
-        [$characterA, $tokenA] = $this->characterWithToken();
-        [$characterB, $tokenB] = $this->characterWithToken();
+        [, $tokenA] = $this->characterWithToken();
+        [, $tokenB] = $this->characterWithToken();
 
-        $petAId = $this->withToken($tokenA)->getJson('/api/v1/pet')->json('id');
+        $petAId = $this->withToken($tokenA)->postJson('/api/v1/pet/adopt', ['species_key' => 'kitsu'])->json('id');
 
         $this->app['auth']->forgetGuards();
 
-        $petBId = $this->withToken($tokenB)->getJson('/api/v1/pet')->json('id');
+        $petBId = $this->withToken($tokenB)->postJson('/api/v1/pet/adopt', ['species_key' => 'lumio'])->json('id');
 
         $this->assertNotEquals($petAId, $petBId);
+
+        $this->app['auth']->forgetGuards();
+        $this->withToken($tokenA)->getJson('/api/v1/pet')->assertJsonPath('id', $petAId);
     }
 
     // F21: reemplaza /pet/destinations -catálogo de expediciones definitivo

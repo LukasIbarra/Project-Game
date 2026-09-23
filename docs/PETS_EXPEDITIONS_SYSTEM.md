@@ -5,7 +5,7 @@
 > Cuando se diga "Implementa F20 siguiendo este documento", este es el
 > contrato a seguir.
 
-## 0. Estado de implementación (actualizado tras F22 — sección viva, no de diseño)
+## 0. Estado de implementación (actualizado tras F23/Adopción — sección viva, no de diseño)
 
 - **F20 (base de especies/alimentación) — ✅ implementado.** `pet_species`,
   migración de `pets.key`→`pets.species_id`, `pet_food_items`,
@@ -29,12 +29,55 @@
   en la auditoría de F21) — se deja la sección original sin reescribir para
   no perder el rastro del hallazgo, pero la afirmación de que no existe es
   falsa.
-- **Pendiente real (no confundir con "no implementado a propósito"):** F23
-  (fórmula de balance §10, no implementada — los `BASE_BUDGET`/
-  `DURATION_EXPONENT`/etc. siguen siendo propuesta), F24 (UX rica de
-  timeline/alertas), F25 (adquisición/gacha). El resto de este documento
-  (§1-20) sigue siendo el diseño original tal como se escribió — léelo como
-  intención/arquitectura, no como "todavía no existe nada de esto".
+- **F23 (Adopción, Colección y Mascota Activa) — ✅ implementado — colisión
+  de numeración con §18, documentada explícitamente en vez de renombrada en
+  silencio:** el roadmap original de este documento (§17/§18) reservaba la
+  etiqueta "F23" para el BALANCE (fórmula de §10) y ponía "colección/
+  adquisición" recién en **F25**. La fase que efectivamente se implementó a
+  continuación de F22 -y que tanto esta sesión como `ROADMAP.md` (Fase 22)
+  llaman **"F23"**- es en realidad el contenido de colección de esa F25
+  original (adoptar/coleccionar varias mascotas, una activa a la vez),
+  NO la fórmula de balance de §10 -que sigue sin implementarse, ver más
+  abajo-. Se prefirió no renombrar el trabajo ya hecho ni reescribir §18
+  para no perder el rastro de la planificación original; quien lea "F23" de
+  acá en adelante en código/tests/ROADMAP.md debe entenderlo como esta
+  fase de adopción/colección, no como la de balance.
+  **Cambios reales al modelo de datos** (ver §6.1, que queda desactualizado
+  en su forma original — no reescrita, nota aparte): `Character 1—1 Pet` ya
+  NO es cierto — pasa a `Character 1—N Pet` (colección) +
+  `characters.active_pet_id` (FK nullable a `pets.id`) como única fuente de
+  verdad de cuál está activa. `pets.character_id` deja de ser UNIQUE simple
+  y pasa a UNIQUE compuesto `(character_id, species_id)` -máximo 1 pet por
+  especie por usuario, sin duplicados todavía (eso sigue siendo F25/gacha
+  real)-. La especie legacy `pet_species.key='starter'` (la única que
+  existía antes de esta fase, auto-creada en el registro) queda retirada
+  -`is_active=false`, `is_starter_option=false`, sus `pets` con
+  `retired_at` seteado- pero NUNCA borrada, para no romper
+  `pet_expeditions` históricas.
+  **Decisión formalizada sobre expediciones (afecta §7/§8):** una
+  `PetExpedition` queda ligada para siempre a la `Pet` concreta que la
+  inició (`pet_expeditions.pet_id`, columna histórica) — cambiar cuál
+  mascota está ACTIVA (`characters.active_pet_id`) nunca reasigna
+  expediciones existentes ni en curso; una expedición activa iniciada por
+  una mascota sigue resolviéndose/reclamándose con normalidad aunque el
+  jugador cambie su mascota activa mientras tanto. El sistema de
+  expediciones sigue operando sobre "la mascota activa del personaje" para
+  decidir CON QUIÉN iniciar una nueva expedición (`PetProvisioningService::activePetFor()`),
+  nunca sobre "la única mascota del personaje" como asumía el diseño
+  original de §7/§8.
+  Ver `ROADMAP.md` Fase 22 para el detalle completo del cierre (migraciones,
+  servicios, API, seeds de las 5 especies nuevas con sprites reales,
+  precios, tests, verificación end-to-end contra backend real).
+- **Pendiente real (no confundir con "no implementado a propósito"):**
+  la fórmula de balance de §10 (`BASE_BUDGET`/`DURATION_EXPONENT`/etc.
+  siguen siendo propuesta, no implementadas — esto es lo que este
+  documento originalmente llamaba "F23"), UX rica de timeline/alertas
+  (§16, lo que originalmente era "F24"), y duplicados/rarezas
+  individuales/huevos/gachapon reales (lo que seguía siendo "F25" incluso
+  después de que su contenido de colección se adelantara a esta fase). El
+  resto de este documento (§1-20) sigue siendo el diseño original tal como
+  se escribió — léelo como intención/arquitectura, no como "todavía no
+  existe nada de esto".
 
 ## 1. Objetivo del sistema
 

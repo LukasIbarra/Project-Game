@@ -22,18 +22,23 @@ class PetSpecies extends Model
         'description',
         'rarity',
         'sprite_key',
+        'sprite_meta_json',
         'modifiers_json',
         'level_modifiers_json',
         'is_active',
+        'is_starter_option',
+        'adoption_price',
     ];
 
     protected function casts(): array
     {
         return [
             'rarity' => PetSpeciesRarity::class,
+            'sprite_meta_json' => 'array',
             'modifiers_json' => 'array',
             'level_modifiers_json' => 'array',
             'is_active' => 'boolean',
+            'is_starter_option' => 'boolean',
         ];
     }
 
